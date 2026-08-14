@@ -70,7 +70,7 @@ resource "azurerm_virtual_network_peering" "item" {
 
 resource "azurerm_subnet" "item" {
   for_each             = { for env in var.subnets : env.name => env }
-  name                 = "subnet-${each.value.name}"
+  name                 = each.value.name
   resource_group_name  = azurerm_resource_group.item[var.network].name
   virtual_network_name = azurerm_virtual_network.item[var.network].name
   address_prefixes     = [each.value.prefix]
