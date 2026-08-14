@@ -6,6 +6,8 @@ networks = [
 
 network = "hub"
 
+enviroment = "hub"
+
 peerings = [
   { name = "hub-lz01", source = "hub", destination = "lz01" },
   { name = "hub-lz02", source = "hub", destination = "lz02" },
@@ -13,3 +15,7 @@ peerings = [
   { name = "lz02-hub", source = "lz02", destination = "hub" },
 ]
 
+subnets = [
+  { name = "vm", prefix = "10.0.0.0/24" },
+  { name = "fw", prefix = "10.0.1.0/24" },
+]

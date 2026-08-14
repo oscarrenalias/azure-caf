@@ -8,7 +8,7 @@ on:
         default: hubspoke
         type: choice
         options:
-          - core
+          - hub
           - lz01
       action:
         description: 'Action'

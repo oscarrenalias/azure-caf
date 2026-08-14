@@ -6,8 +6,23 @@ variable "networks" {
   }))
 }
 
+variable "network" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
 variable "number" {
   type = number
+}
+
+variable "subnets" {
+  type = list(object({
+    name   = string
+    prefix = string
+  }))
 }
 
 variable "location" {
@@ -37,16 +52,35 @@ resource "azurerm_virtual_network" "item" {
 }
 
 resource "azurerm_virtual_network_peering" "item" {
-  for_each = { for p in var.peerings : p.name => p }
-  name                      = each.value.name
-  resource_group_name       = azurerm_resource_group.item[each.value.source].name
-  virtual_network_name      = azurerm_virtual_network.item[each.value.source].name
-  remote_virtual_network_id = azurerm_virtual_network.item[each.value.destination].id
+  for_each                     = { for p in var.peerings : p.name => p }
+  name                         = each.value.name
+  resource_group_name          = azurerm_resource_group.item[each.value.source].name
+  virtual_network_name         = azurerm_virtual_network.item[each.value.source].name
+  remote_virtual_network_id    = azurerm_virtual_network.item[each.value.destination].id
+  use_remote_gateways          = each.value.source == "hub" ? false : true
+  allow_forwarded_traffic      = true
+  allow_virtual_network_access = true
+  allow_gateway_transit        = each.value.source == "hub" ? true : false
+}
+
+resource "azurerm_subnet" "item" {
+  for_each             = { for env in var.subnets : env.name => env }
+  name                 = "subnet-${each.value.name}"
+  resource_group_name  = azurerm_resource_group.item[var.network].name
+  virtual_network_name = azurerm_virtual_network.item[var.network].name
+  address_prefixes     = [each.value.prefix]
 }
 
 
-
-
+# # spoke2hub
+#   use_remote_gateways          = true
+#   allow_forwarded_traffic      = true
+#   allow_virtual_network_access = true
+# # hub2spoke
+#   use_remote_gateways          = false
+#   allow_gateway_transit        = true
+#   allow_forwarded_traffic      = true
+#   allow_virtual_network_access = true
 
 
 
