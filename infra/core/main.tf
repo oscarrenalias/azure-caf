@@ -1,5 +1,5 @@
 
-variable "environments" {
+variable "networks" {
   type = list(object({
     name = string
     range = string
@@ -15,13 +15,13 @@ variable "location" {
 }
 
 resource "azurerm_resource_group" "item" {
-  for_each = { for env in var.environments : env.name => env }
+  for_each = { for env in var.networks : env.name => env }
   name     = "rg${var.number}-${each.value.name}"
   location = var.location
 }
 
 resource "azurerm_virtual_network" "item" {
-  for_each            = { for env in var.environments : env.name => env }
+  for_each            = { for env in var.networks : env.name => env }
   name                = "vnet${var.number}-${each.value.name}"
   location            = azurerm_resource_group.item[each.key].location
   resource_group_name = azurerm_resource_group.item[each.key].name

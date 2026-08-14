@@ -1,1 +1,1 @@
-spoke = "spoke01"
+lz = "lz01"
