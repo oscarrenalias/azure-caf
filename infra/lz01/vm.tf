@@ -11,9 +11,8 @@ resource "azurerm_network_interface" "vm1" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.item["vm"].id
+    subnet_id                     = module.lz_data.rg.subnets[0].id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.vm1.id
   }
 }
 
@@ -55,8 +54,6 @@ resource "azurerm_linux_virtual_machine" "vm1" {
   }
 }
 
-
-
 resource "azurerm_network_security_group" "rule1" {
   name                = "nsg-ssh"
   location            = module.lz_data.rg.location
@@ -69,7 +66,7 @@ resource "azurerm_network_security_group" "rule1" {
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_ranges    = ["22", "3389"]
+    destination_port_ranges    = ["22" ]
     source_address_prefix      = "10.0.0.0/8"
     destination_address_prefix = "*"
   }
