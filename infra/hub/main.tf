@@ -57,7 +57,7 @@ resource "azurerm_virtual_network_peering" "item" {
   resource_group_name          = azurerm_resource_group.item[each.value.source].name
   virtual_network_name         = azurerm_virtual_network.item[each.value.source].name
   remote_virtual_network_id    = azurerm_virtual_network.item[each.value.destination].id
-  use_remote_gateways          = each.value.source == "hub" ? false : true
+  use_remote_gateways          = each.value.source == "hub" ? false : false # set to true when spoke needs to use hub gateway
   allow_forwarded_traffic      = true
   allow_virtual_network_access = true
   allow_gateway_transit        = each.value.source == "hub" ? true : false
