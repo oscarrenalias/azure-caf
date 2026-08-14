@@ -11,7 +11,7 @@ resource "azurerm_network_interface" "vm1" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = module.lz_data.vnet.subnets[0].id
+    subnet_id                     = azurerm_subnet.item["vm"].id
     private_ip_address_allocation = "Dynamic"
   }
 }
