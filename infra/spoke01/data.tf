@@ -13,9 +13,9 @@ module "spoke_data" {
 }
 
 output "resource_group_name" {
-  value = module.spoke_data.data.azurerm_resource_group.spoke.name
+  value = module.spoke_data.rg
 }
 
 output "virtual_network_name" {
-  value = module.spoke_data.data.azurerm_virtual_network.spoke.name
+  value = module.spoke_data.vnet
 }
