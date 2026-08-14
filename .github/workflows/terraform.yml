@@ -38,7 +38,7 @@ run-name: terraform | ${{ github.event.inputs.action }} | ${{ github.event.input
 jobs:
   terraform:
     runs-on: ubuntu-latest
-      steps:
+    steps:
       - uses: actions/checkout@v4
 
       - name: 'Environment variables'
