@@ -23,6 +23,3 @@ output "vnet" {
   value = data.azurerm_virtual_network.lz
 }
 
-output "subnets" {
-  value = data.azurerm_virtual_network.lz.subnets
-}
