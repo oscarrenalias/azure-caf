@@ -76,62 +76,7 @@ resource "azurerm_subnet" "item" {
   address_prefixes     = [each.value.prefix]
 }
 
-
-
-
-
-# # spoke2hub
-#   use_remote_gateways          = true
-#   allow_forwarded_traffic      = true
-#   allow_virtual_network_access = true
-# # hub2spoke
-#   use_remote_gateways          = false
-#   allow_gateway_transit        = true
-#   allow_forwarded_traffic      = true
-#   allow_virtual_network_access = true
-
-
-
 # resource "azurerm_subnet" "hub" {
-#   name                                          = "hub-subnet"
-#   resource_group_name                           = azurerm_resource_group.hub.name
-#   virtual_network_name                          = azurerm_virtual_network.hub.name
-#   address_prefixes                              = ["10.0.0.0/24"]
 #   private_endpoint_network_policies_enabled     = true
 #   private_link_service_network_policies_enabled = true
 # }
-
-# resource "azurerm_subnet" "hubfw" {
-#   name                                          = "AzureFirewallSubnet"
-#   resource_group_name                           = azurerm_resource_group.hub.name
-#   virtual_network_name                          = azurerm_virtual_network.hub.name
-#   address_prefixes                              = ["10.0.1.0/24"]
-#   private_endpoint_network_policies_enabled     = true
-#   private_link_service_network_policies_enabled = true
-# }
-
-# resource "azurerm_public_ip" "fwpip" {
-#   name                = "fw001pip"
-#   location            = azurerm_resource_group.hub.location
-#   resource_group_name = azurerm_resource_group.hub.name
-#   allocation_method   = "Static"
-#   sku                 = "Standard"
-#   domain_name_label   = "dev1138fw001pip"
-# }
-
-
-
-# resource "azurerm_firewall" "hub" {
-#   name                = "fw001"
-#   location            = azurerm_resource_group.hub.location
-#   resource_group_name = azurerm_resource_group.hub.name
-#   sku_name            = "AZFW_VNet"
-#   sku_tier            = "Standard"
-
-#   ip_configuration {
-#     name                 = "configuration"
-#     subnet_id            = azurerm_subnet.hubfw.id
-#     public_ip_address_id = azurerm_public_ip.fwpip.id
-#   }
-# }
-
