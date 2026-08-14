@@ -68,18 +68,18 @@ jobs:
 
       - name: terraform init
         run: |
-          terraform -chdir=infra init \
+          terraform -chdir=infra/${{ github.event.inputs.environment }} init \
               -backend-config="key=${{ github.event.inputs.environment }}.tfstate" \
               -backend-config="resource_group_name=${{ env.STORAGE_RESOURCE_GROUP}}" \
               -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" 
 
       - name: terraform validate 
         run: |
-          terraform -chdir=infra/hubspoke validate 
+          terraform -chdir=infra/${{ github.event.inputs.environment }} validate 
 
       - name: terraform plan 
         run: |
-          terraform -chdir=infra plan -out=tfplan
+          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -out=tfplan
 
       # - name: terraform apply
       #   if: (inputs.action == 'apply') 
