@@ -90,7 +90,7 @@ jobs:
 
       - name: terraform plan 
         run: |
-          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -out=tfplan
+          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -input=false -out=tfplan
 
       - name: terraform apply
         if: (inputs.action == 'apply') 

@@ -6,7 +6,7 @@ networks = [
 
 network = "hub"
 
-enviroment = "hub"
+environment = "hub"
 
 peerings = [
   { name = "hub-lz01", source = "hub", destination = "lz01" },
