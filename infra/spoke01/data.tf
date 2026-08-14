@@ -12,10 +12,10 @@ module "spoke_data" {
   spoke  = var.spoke
 }
 
-output "resource_group_name" {
+output "rg" {
   value = module.spoke_data.rg
 }
 
-output "virtual_network_name" {
+output "vnet" {
   value = module.spoke_data.vnet
 }
