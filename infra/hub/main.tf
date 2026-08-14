@@ -77,6 +77,9 @@ resource "azurerm_subnet" "item" {
 }
 
 
+
+
+
 # # spoke2hub
 #   use_remote_gateways          = true
 #   allow_forwarded_traffic      = true

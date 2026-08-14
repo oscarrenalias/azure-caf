@@ -18,5 +18,5 @@ peerings = [
 
 subnets = [
   { name = "vm", prefix = "10.0.0.0/24" },
-  { name = "fw", prefix = "10.0.1.0/24" },
+  { name = "AzureFirewallSubnet", prefix = "10.0.1.0/24" },
 ]
