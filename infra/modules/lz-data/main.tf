@@ -15,10 +15,10 @@ data "azurerm_virtual_network" "lz" {
   resource_group_name = data.azurerm_resource_group.lz.name
 }
 
-output rg {
+output "rg" {
   value = data.azurerm_resource_group.lz
 }
 
-output vnet {
+output "vnet" {
   value = data.azurerm_virtual_network.lz
 }

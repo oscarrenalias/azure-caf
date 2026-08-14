@@ -1,7 +1,7 @@
 
 variable "networks" {
   type = list(object({
-    name = string
+    name  = string
     range = string
   }))
 }
