@@ -14,7 +14,7 @@ on:
       action:
         description: 'Action'
         required: true
-        default: apply
+        default: plan
         type: choice
         options:
           - plan
