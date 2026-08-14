@@ -9,6 +9,8 @@ on:
         type: choice
         options:
           - hubspoke
+          - spoke01
+          - spoke02
       action:
         description: 'Action'
         required: true
