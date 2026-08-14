@@ -7,6 +7,7 @@
 - update the gh org number and gh repo number in bootstrap.sh in the federated credential section
 - run `bootstrap.sh`
 - overwrite the environment variables in `global.env` & `global.tfvars` in the repo from the output
+- update your ssh_public_key in global.tfvars
 - run the workflow `terraform.yml`
 
 ## todo
