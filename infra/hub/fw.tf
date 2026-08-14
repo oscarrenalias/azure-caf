@@ -47,7 +47,7 @@ resource "azurerm_firewall_network_rule_collection" "all" {
       "*",
     ]
     destination_ports = [
-      "80",
+      "443",
       "53"
     ]
     destination_addresses = [
