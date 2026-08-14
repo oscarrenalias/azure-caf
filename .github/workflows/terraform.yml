@@ -21,7 +21,7 @@ on:
           - destroy
 
 concurrency:
-  group: infra
+  group: ${{ github.event.inputs.environment }}
   cancel-in-progress: true
 
 permissions:
