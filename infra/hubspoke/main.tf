@@ -2,6 +2,7 @@
 variable "environments" {
   type = list(object({
     name = string
+    range = string
   }))
 }
 
