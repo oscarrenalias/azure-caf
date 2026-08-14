@@ -1,14 +1,14 @@
 
-resource "azurerm_public_ip" "vm1" {
-  name                = "publicip-vm1"
+resource "azurerm_public_ip" "jump" {
+  name                = "publicip-jump"
   location            = azurerm_resource_group.item[var.environment].location
   resource_group_name = azurerm_resource_group.item[var.environment].name
   allocation_method   = "Static"
 
 }
 
-resource "azurerm_network_interface" "vm1" {
-  name                = "nic-vm1"
+resource "azurerm_network_interface" "jump" {
+  name                = "nic-jump"
   location            = azurerm_resource_group.item[var.environment].location
   resource_group_name = azurerm_resource_group.item[var.environment].name
 
@@ -16,24 +16,24 @@ resource "azurerm_network_interface" "vm1" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.item["vm"].id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.vm1.id
+    public_ip_address_id          = azurerm_public_ip.jump.id
   }
 }
 
 resource "azurerm_network_interface_security_group_association" "linux" {
-  network_interface_id      = azurerm_network_interface.vm1.id
+  network_interface_id      = azurerm_network_interface.jump.id
   network_security_group_id = azurerm_network_security_group.rule1.id
 }
 
-resource "azurerm_linux_virtual_machine" "vm1" {
-  name                            = "vm-linux"
+resource "azurerm_linux_virtual_machine" "jump" {
+  name                            = "jump"
   resource_group_name             = azurerm_resource_group.item[var.environment].name
   location                        = azurerm_resource_group.item[var.environment].location
   size                            = "Standard_D2s_v5"
   admin_username                  = "azureuser"
   disable_password_authentication = true
   network_interface_ids = [
-    azurerm_network_interface.vm1.id,
+    azurerm_network_interface.jump.id,
   ]
 
   admin_ssh_key {

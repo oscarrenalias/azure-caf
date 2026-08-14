@@ -22,7 +22,7 @@ resource "azurerm_network_interface_security_group_association" "linux" {
 }
 
 resource "azurerm_linux_virtual_machine" "vm1" {
-  name                            = "vm-linux"
+  name                            = "vm1"
   resource_group_name             = module.lz_data.rg.name
   location                        = module.lz_data.rg.location
   size                            = "Standard_D2s_v5"
