@@ -10,7 +10,6 @@ on:
         options:
           - core
           - lz01
-          - lz02
       action:
         description: 'Action'
         required: true
