@@ -16,7 +16,11 @@ subscriptionid=$(az account show| jq -r '.id')
 
 az role assignment create --assignee-object-id $idplatform --assignee-principal-type ServicePrincipal --role "Owner" --scope "/subscriptions/$subscriptionid"
 
-az identity federated-credential create --name "github" --identity-name mihubspoke$number -g rgmi$number --issuer "https://token.actions.githubusercontent.com" --subject "repo:tvdvoorde/caf:ref:refs/heads/main" --audiences "api://AzureADTokenExchange"
+az identity federated-credential create --name "github" \
+  --identity-name mihubspoke$number -g rgmi$number \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:tvdvoorde@28575822/caf@1334094652:ref:refs/heads/main" \
+  --audiences "api://AzureADTokenExchange"
 
 echo ARM_CLIENT_ID=$idplatformclientid
 echo ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
