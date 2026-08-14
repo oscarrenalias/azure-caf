@@ -6,11 +6,16 @@ variable "spoke" {
   type = string
 }
 
-data "azurerm_resource_group" "spoke" {
-  name = "rg${var.number}-${var.spoke}"
+module "spoke_data" {
+  source = "../modules/spoke-data"
+  number = var.number
+  spoke  = var.spoke
 }
 
-data "azurerm_virtual_network" "spoke" {
-  name                = "vnet${var.number}-${var.spoke}"
-  resource_group_name = data.azurerm_resource_group.spoke.name
+output "resource_group_name" {
+  value = module.spoke_data.data.azurerm_resource_group.spoke.name
+}
+
+output "virtual_network_name" {
+  value = module.spoke_data.data.azurerm_virtual_network.spoke.name
 }
