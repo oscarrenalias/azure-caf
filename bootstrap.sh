@@ -27,6 +27,7 @@ echo ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
 echo ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo STORAGE_ACCOUNT_NAME=sa$number
 echo STORAGE_RESOURCE_GROUP=rgstate$number
+echo "number = $number"
 
 # idrgstate=$(az group create -g rgstate$number --location $location --query "id" -o tsv)
 
