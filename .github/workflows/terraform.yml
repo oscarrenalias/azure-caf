@@ -100,7 +100,7 @@ jobs:
       - name: terraform plan destroy
         if: (inputs.action == 'destroy') 
         run: |
-          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -destroy -out=tfplan-destroy
+          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -input=false -destroy -out=tfplan-destroy
 
       - name: terraform destroy
         if: (inputs.action == 'destroy') 
