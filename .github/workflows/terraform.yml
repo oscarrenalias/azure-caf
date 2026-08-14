@@ -31,11 +31,11 @@ env:
   ARM_USE_OIDC: true
   # TF_LOG: DEBUG
 
-name: infra
-run-name: infra | ${{ github.event.inputs.action }} | ${{ github.event.inputs.environment }} | ${{ github.ref_name }}
+name: terraform
+run-name: terraform | ${{ github.event.inputs.action }} | ${{ github.event.inputs.environment }} | ${{ github.ref_name }}
 
 jobs:
-  run-terraform:
+  terraform:
     runs-on: ubuntu-latest
     # environment: ${{ github.event.inputs.environment }}
     steps:
@@ -45,6 +45,10 @@ jobs:
         run: |
           cat config/generic.env >>$GITHUB_ENV
           cat config/${{ github.event.inputs.environment }}.env >>$GITHUB_ENV
+
+      - name: 'Environment variables debug'
+        run: |
+          printenv|grep "ARM"
 
       - name: Azure Login
         uses: azure/login@v3
@@ -71,7 +75,7 @@ jobs:
 
       - name: terraform validate 
         run: |
-          terraform -chdir=infra validate 
+          terraform -chdir=infra/hubspoke validate 
 
       - name: terraform plan 
         run: |
