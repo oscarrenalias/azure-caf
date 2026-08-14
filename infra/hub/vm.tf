@@ -31,11 +31,15 @@ resource "azurerm_linux_virtual_machine" "vm1" {
   location                        = azurerm_resource_group.item[var.environment].location
   size                            = "Standard_D2s_v5"
   admin_username                  = "azureuser"
-  admin_password                  = "Dpreview.com1!"
-  disable_password_authentication = false
+  disable_password_authentication = true
   network_interface_ids = [
     azurerm_network_interface.vm1.id,
   ]
+
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = var.ssh_public_key
+  }
 
   identity {
     type = "SystemAssigned"
