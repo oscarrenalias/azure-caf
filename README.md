@@ -9,4 +9,11 @@
 - overwrite the environment variables in `global.env` & `global.tfvars` in the repo from the output
 - run the workflow `terraform.yml`
 
+## todo
+
+- https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners
+- app service
+- private endpoint
+- application gateway
+
 

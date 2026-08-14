@@ -1,11 +1,3 @@
-# resource "azurerm_subnet" "hubfw" {
-#   name                                          = "AzureFirewallSubnet"
-#   resource_group_name                           = azurerm_resource_group.hub.name
-#   virtual_network_name                          = azurerm_virtual_network.hub.name
-#   address_prefixes                              = ["10.0.1.0/24"]
-#   private_endpoint_network_policies_enabled     = true
-#   private_link_service_network_policies_enabled = true
-# }
 
 resource "azurerm_public_ip" "fwpip" {
   name                = "pip-001"
@@ -13,7 +5,6 @@ resource "azurerm_public_ip" "fwpip" {
   resource_group_name = azurerm_resource_group.item[var.environment].name
   allocation_method   = "Static"
   sku                 = "Standard"
-  #domain_name_label   = "dev1138fw001pip"
 }
 
 resource "azurerm_firewall" "hub" {
@@ -43,12 +34,6 @@ resource "azurerm_route_table" "main" {
   }
 }
 
-# resource "azurerm_subnet_route_table_association" "aks-pe" {
-#   subnet_id      = azurerm_subnet.aks-pe.id
-#   route_table_id = azurerm_route_table.main.id
-# }
-
-
 
 resource "azurerm_firewall_network_rule_collection" "all" {
   name                = "all"
@@ -62,7 +47,8 @@ resource "azurerm_firewall_network_rule_collection" "all" {
       "*",
     ]
     destination_ports = [
-      "*",
+      "80",
+      "53"
     ]
     destination_addresses = [
       "*",
