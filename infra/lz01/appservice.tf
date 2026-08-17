@@ -4,7 +4,7 @@ data "azurerm_private_dns_zone" "app_service" {
 }
 
 resource "azurerm_service_plan" "app_service" {
-	name                = "asp${random_id.app_service.hex}"
+	name                = "asp${random_id.app_service.hex}1"
 	location            = module.lz_data.rg.location
 	resource_group_name = module.lz_data.rg.name
 	os_type             = "Linux"
