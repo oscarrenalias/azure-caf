@@ -8,7 +8,7 @@ resource "azurerm_service_plan" "app_service" {
 	location            = module.lz_data.rg.location
 	resource_group_name = module.lz_data.rg.name
 	os_type             = "Linux"
-	sku_name            = "S1"
+	sku_name            = "B1"
 }
 
 resource "random_id" "app_service" {
