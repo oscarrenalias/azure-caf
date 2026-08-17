@@ -4,6 +4,18 @@ resource "azurerm_subnet" "item" {
   resource_group_name  = module.lz_data.rg.name
   virtual_network_name = module.lz_data.vnet.name
   address_prefixes     = [each.value.prefix]
+
+  dynamic "delegation" {
+    for_each = each.value.delegated ? [each.value.name] : []
+
+    content {
+      name = "app-service"
+
+      service_delegation {
+        name = "Microsoft.Web/serverFarms"
+      }
+    }
+  }
 }
 variable "hub" {
   type = string
@@ -11,9 +23,10 @@ variable "hub" {
 
 variable "subnets" {
   type = list(object({
-    name   = string
-    prefix = string
-    route  = bool
+    name      = string
+    prefix    = string
+    route     = bool
+    delegated = bool
   }))
 }
 
