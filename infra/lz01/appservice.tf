@@ -4,15 +4,19 @@ data "azurerm_private_dns_zone" "app_service" {
 }
 
 resource "azurerm_service_plan" "app_service" {
-	name                = "asp${var.number}-${var.lz}"
+	name                = "asp${random_id.app_service.hex}"
 	location            = module.lz_data.rg.location
 	resource_group_name = module.lz_data.rg.name
 	os_type             = "Linux"
 	sku_name            = "S1"
 }
 
+resource "random_id" "app_service" {
+    byte_length = 8
+}
+
 resource "azurerm_linux_web_app" "item" {
-	name                      = "app${var.number}-${var.lz}"
+	name                      = "app${random_id.app_service.hex}"
 	location                  = module.lz_data.rg.location
 	resource_group_name       = module.lz_data.rg.name
 	service_plan_id           = azurerm_service_plan.app_service.id
@@ -28,13 +32,13 @@ resource "azurerm_linux_web_app" "item" {
 }
 
 resource "azurerm_private_endpoint" "app_service" {
-	name                = "pe-app-${var.lz}"
+	name                = "pe-app-${random_id.app_service.hex}"
 	location            = module.lz_data.rg.location
 	resource_group_name = module.lz_data.rg.name
 	subnet_id           = azurerm_subnet.item["private-endpoint"].id
 
 	private_service_connection {
-		name                           = "psc-app-${var.lz}"
+		name                           = "psc-app-${random_id.app_service.hex}"
 		private_connection_resource_id = azurerm_linux_web_app.item.id
 		subresource_names              = ["sites"]
 		is_manual_connection           = false
