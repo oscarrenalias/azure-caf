@@ -65,6 +65,37 @@ resource "azurerm_virtual_network" "item" {
   address_space       = [each.value.range]
 }
 
+variable dnszones {
+  type = list(object({
+    name = string
+  }))
+  default = [
+    { name = "privatelink.azurewebsites.net" },
+  ]
+}
+
+resource "azurerm_private_dns_zone" "item" {
+  for_each            = { for env in var.dnszones : env.name => env }
+  name                = each.value.name
+  resource_group_name = azurerm_resource_group.item[var.environment].name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "item" {
+  for_each = {
+    for pair in setproduct(var.dnszones, var.networks) :
+    "${pair[0].name}-${pair[1].name}" => {
+      dns_zone_name = pair[0].name
+      vnet_name     = pair[1].name
+    }
+  }
+
+  name                  = "${each.value.dns_zone_name}-${each.value.vnet_name}"
+  resource_group_name   = azurerm_private_dns_zone.item[each.value.dns_zone_name].resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.item[each.value.dns_zone_name].name
+  virtual_network_id    = azurerm_virtual_network.item[each.value.vnet_name].id
+  registration_enabled  = false
+}
+
 resource "azurerm_virtual_network_peering" "item" {
   for_each                     = { for p in var.peerings : p.name => p }
   name                         = each.value.name
