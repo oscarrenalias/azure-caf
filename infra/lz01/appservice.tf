@@ -12,7 +12,7 @@ resource "azurerm_service_plan" "app_service" {
 }
 
 resource "random_id" "app_service" {
-  byte_length = 4
+  byte_length = 6
 }
 
 resource "azurerm_linux_web_app" "item" {
