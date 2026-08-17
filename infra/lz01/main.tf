@@ -36,7 +36,7 @@ data "azurerm_route_table" "hub" {
 }
 
 resource "azurerm_subnet_route_table_association" "item" {
-  for_each            = { for env in var.subnets : env.name => env if env.route == true }
-  subnet_id           = azurerm_subnet.item[each.key].id
-  route_table_id      = data.azurerm_route_table.hub.id
+  for_each       = { for env in var.subnets : env.name => env if env.route == true }
+  subnet_id      = azurerm_subnet.item[each.key].id
+  route_table_id = data.azurerm_route_table.hub.id
 }

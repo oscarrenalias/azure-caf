@@ -65,7 +65,7 @@ resource "azurerm_virtual_network" "item" {
   address_space       = [each.value.range]
 }
 
-variable dnszones {
+variable "dnszones" {
   type = list(object({
     name = string
   }))

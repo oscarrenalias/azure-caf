@@ -1,4 +1,4 @@
-lz = "lz01"
+lz  = "lz01"
 hub = "hub"
 subnets = [
   { name = "vm", prefix = "10.1.0.0/24", route = true, delegated = false },
