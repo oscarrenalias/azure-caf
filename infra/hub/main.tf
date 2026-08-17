@@ -34,6 +34,15 @@ variable "ssh_public_key" {
   sensitive = true
 }
 
+variable "github_repository" {
+  type = string
+}
+
+variable "github_runner_pat" {
+  type      = string
+  sensitive = true
+}
+
 variable "peerings" {
   type = list(object({
     name        = string

@@ -32,6 +32,10 @@ resource "azurerm_linux_virtual_machine" "jump" {
   size                            = "Standard_D2s_v5"
   admin_username                  = "azureuser"
   disable_password_authentication = true
+  custom_data = base64encode(templatefile("${path.module}/scripts/github-runner.sh.tftpl", {
+    github_repository = var.github_repository
+    github_runner_pat = var.github_runner_pat
+  }))
   network_interface_ids = [
     azurerm_network_interface.jump.id,
   ]

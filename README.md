@@ -8,11 +8,11 @@
 - run `bootstrap.sh`
 - overwrite the environment variables in `global.env` & `global.tfvars` in the repo from the output
 - update your ssh_public_key in global.tfvars
+- add a repository secret named `GH_RUNNER_PAT` containing a fine-grained GitHub PAT with repository Administration read/write access
 - run the workflow `terraform.yml`
 
 ## todo
 
-- https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners
 - app service
 - private endpoint
 - application gateway
