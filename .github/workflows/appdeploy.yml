@@ -8,6 +8,7 @@ on:
         type: choice
         options:
           - lz01
+          - lz02
       appservice:
         description: 'App Service name'
         required: true
@@ -17,8 +18,8 @@ permissions:
   id-token: write
   contents: read
 
-name: app1
-run-name: app1 | ${{ github.event.inputs.appservice }} | ${{ github.event.inputs.environment }}
+name: appdeploy
+run-name: appdeploy | ${{ github.event.inputs.appservice }} | ${{ github.event.inputs.environment }}
 
 jobs:
   deploy:
