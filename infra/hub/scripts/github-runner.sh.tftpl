@@ -17,7 +17,7 @@ echo "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d  actions-
 tar xzf ./actions-runner-linux-x64-2.336.0.tar.gz
 ./config.sh --url https://github.com/tvdvoorde/caf \
             --token "${github_runner_pat}" \
-            --url "https://github.com/$${github_repository}" \
+            --url "https://github.com/${github_repository}" \
             --unattended \
             --replace 
 sudo ./svc.sh install
