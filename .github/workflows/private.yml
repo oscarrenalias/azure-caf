@@ -1,0 +1,109 @@
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'The target environment'
+        required: true
+        default: hubspoke
+        type: choice
+        options:
+          - hub
+          - lz01
+      action:
+        description: 'Action'
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+concurrency:
+  group: ${{ github.event.inputs.environment }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_USE_OIDC: true
+  TF_VAR_github_repository: ${{ github.repository }}
+  TF_VAR_github_runner_pat: ${{ secrets.GH_RUNNER_PAT }}
+  # TF_LOG: DEBUG
+
+name: private
+run-name: private | ${{ github.event.inputs.action }} | ${{ github.event.inputs.environment }} | ${{ github.ref_name }}
+
+jobs:
+  terraform:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'Environment variables'
+        run: |
+          cat config/global.env >>$GITHUB_ENV
+          echo -e "\n" >>$GITHUB_ENV
+          cat config/${{ github.event.inputs.environment }}.env >>$GITHUB_ENV
+          echo -e "\n" >>$GITHUB_ENV
+
+      - name: 'Terraform variables'
+        run: |
+          cat config/global.tfvars >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
+          echo -e "\n" >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
+          cat config/${{ github.event.inputs.environment }}.tfvars >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
+          echo -e "\n" >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
+
+
+      - name: 'Environment variables debug'
+        run: |
+          printenv|grep "ARM"
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+
+      - name: terraform version
+        run: |
+          terraform version
+
+      - name: terraform init
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} init \
+              -backend-config="key=${{ github.event.inputs.environment }}.tfstate" \
+              -backend-config="resource_group_name=${{ env.STORAGE_RESOURCE_GROUP}}" \
+              -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" 
+
+      - name: terraform validate 
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} validate 
+
+      - name: terraform plan 
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -input=false -out=tfplan
+
+      - name: terraform apply
+        if: (inputs.action == 'apply') 
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} apply -input=false -auto-approve tfplan
+
+      - name: terraform plan destroy
+        if: (inputs.action == 'destroy') 
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} plan -input=false -destroy -out=tfplan-destroy
+
+      - name: terraform destroy
+        if: (inputs.action == 'destroy') 
+        run: |
+          terraform -chdir=infra/${{ github.event.inputs.environment }} apply -input=false -auto-approve tfplan-destroy
