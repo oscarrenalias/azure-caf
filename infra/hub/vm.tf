@@ -26,7 +26,7 @@ resource "azurerm_network_interface_security_group_association" "linux" {
 }
 
 resource "azurerm_linux_virtual_machine" "jump" {
-  name                            = "jump5"
+  name                            = "jump6"
   resource_group_name             = azurerm_resource_group.item[var.environment].name
   location                        = azurerm_resource_group.item[var.environment].location
   size                            = "Standard_D2s_v5"
