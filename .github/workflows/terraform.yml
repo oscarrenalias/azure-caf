@@ -19,6 +19,14 @@ on:
           - plan
           - apply
           - destroy
+      runner:
+        description: 'Runner'
+        required: true
+        default: ubuntu-latest
+        type: choice
+        options:
+          - self-hosted
+          - ubuntu-latest
 
 concurrency:
   group: ${{ github.event.inputs.environment }}
@@ -41,7 +49,7 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: 'Environment variables'
         run: |
@@ -57,7 +65,6 @@ jobs:
           cat config/${{ github.event.inputs.environment }}.tfvars >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
           echo -e "\n" >> infra/${{ github.event.inputs.environment }}/value.auto.tfvars
 
-
       - name: 'Environment variables debug'
         run: |
           printenv|grep "ARM"
@@ -70,7 +77,7 @@ jobs:
           subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
 
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.8
 
