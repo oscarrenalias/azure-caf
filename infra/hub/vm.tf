@@ -63,6 +63,7 @@ resource "azurerm_linux_virtual_machine" "jump" {
 
   lifecycle {
     ignore_changes = [ custom_data ]
+  }
 }
 
 
