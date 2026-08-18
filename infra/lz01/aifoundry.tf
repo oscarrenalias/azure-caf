@@ -27,8 +27,7 @@ resource "azurerm_cognitive_deployment" "gpt" {
   }
 
   sku {
-    name     = "Standard"
-    capacity = 10
+    name     = "DataZoneStandard"
   }
 }
 
