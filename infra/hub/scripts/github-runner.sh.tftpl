@@ -14,7 +14,6 @@ chown -R azureuser:azureuser /actions-runner
 sudo -u azureuser ./config.sh --url https://github.com/tvdvoorde/caf \
             --token "${github_runner_pat}" \
             --url "https://github.com/${github_repository}" \
-            --name "runner$RANDOM$RANDOM" \
             --unattended \
             --replace 
 sudo ./svc.sh install
