@@ -6,13 +6,13 @@ resource "azurerm_subnet" "item" {
   address_prefixes     = [each.value.prefix]
 
   dynamic "delegation" {
-    for_each = each.value.delegated ? [each.value.name] : []
+    for_each = each.value.delegation != null ? [each.value.delegation] : []
 
     content {
-      name = "app-service"
+      name = each.value.name
 
       service_delegation {
-        name = "Microsoft.Web/serverFarms"
+        name = delegation.value
       }
     }
   }
@@ -23,10 +23,10 @@ variable "hub" {
 
 variable "subnets" {
   type = list(object({
-    name      = string
-    prefix    = string
-    route     = bool
-    delegated = bool
+    name       = string
+    prefix     = string
+    route      = bool
+    delegation = optional(string)
   }))
 }
 

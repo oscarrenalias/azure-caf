@@ -71,6 +71,8 @@ variable "dnszones" {
   }))
   default = [
     { name = "privatelink.azurewebsites.net" },
+    { name = "privatelink.cognitiveservices.azure.com" },
+    { name = "privatelink.openai.azure.com" },
   ]
 }
 
