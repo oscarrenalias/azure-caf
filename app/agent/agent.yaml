@@ -1,0 +1,7 @@
+name: rag-agent
+description: "LangGraph RAG agent with Azure AI Search, hosted on Foundry Agent Service"
+instructions: |
+  You are a helpful assistant with access to a knowledge base.
+  Use the search_knowledge_base tool to find relevant information and answer questions accurately.
+model:
+  id: apim-gateway/gpt-4o

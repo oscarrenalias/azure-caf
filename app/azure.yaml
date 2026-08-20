@@ -9,9 +9,3 @@ services:
       context: ../
       path: ./Dockerfile
       remoteBuild: false
-    template:
-      name: rag-agent
-      instructions: |
-        You are a helpful assistant with access to a knowledge base.
-        Use the search_knowledge_base tool to find relevant information and answer questions accurately.
-      model: apim-gateway/gpt-4o
