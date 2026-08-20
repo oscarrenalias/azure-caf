@@ -76,6 +76,7 @@ variable "dnszones" {
     { name = "azure-api.net" },
     { name = "privatelink.search.windows.net" },
     { name = "privatelink.api.azureml.ms" },
+    { name = "privatelink.azurecr.io" },
   ]
 }
 

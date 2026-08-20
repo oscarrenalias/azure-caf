@@ -32,6 +32,22 @@ resource "azurerm_cognitive_deployment" "gpt4o" {
   }
 }
 
+resource "azurerm_cognitive_deployment" "text_embedding" {
+  name                 = "text-embedding-3-small"
+  cognitive_account_id = azurerm_cognitive_account.ai_foundry.id
+
+  model {
+    format  = "OpenAI"
+    name    = "text-embedding-3-small"
+    version = "1"
+  }
+
+  sku {
+    name     = "Standard"
+    capacity = 120
+  }
+}
+
 data "azurerm_private_dns_zone" "cognitive_services" {
   name                = "privatelink.cognitiveservices.azure.com"
   resource_group_name = "rg${var.number}-${var.hub}"

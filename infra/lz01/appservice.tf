@@ -24,6 +24,10 @@ resource "azurerm_linux_web_app" "item" {
   public_network_access_enabled = false
   https_only                    = true
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
     application_stack {
       python_version = "3.12"
@@ -39,6 +43,8 @@ resource "azurerm_linux_web_app" "item" {
     OPENAI_API_VERSION             = "2024-11-01-preview"
     FOUNDRY_PROJECT_NAME           = azurerm_ai_foundry_project.main.name
     FOUNDRY_PROJECT_RG             = module.lz_data.rg.name
+    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_ai_foundry_project.main.name}.${module.lz_data.rg.location}.api.azureml.ms"
+    AGENT_NAME                     = "rag-agent"
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
   }
 }
