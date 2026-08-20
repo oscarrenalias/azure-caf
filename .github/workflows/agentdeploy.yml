@@ -193,7 +193,7 @@ jobs:
           azd env set AZURE_AI_PROJECT_ID "${{ env.FOUNDRY_PROJECT_ID }}"
           azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
           azd env set AZURE_CONTAINER_REGISTRY_ENDPOINT "${{ env.ACR_LOGIN_SERVER }}"
-          azd env set FOUNDRY_PROJECT_ENDPOINT "https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com"
+          azd env set FOUNDRY_PROJECT_ENDPOINT "https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
 
       - name: Generate azure.yaml

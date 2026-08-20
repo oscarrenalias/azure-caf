@@ -44,7 +44,7 @@ resource "azurerm_linux_web_app" "item" {
     OPENAI_API_VERSION             = "2024-11-01-preview"
     FOUNDRY_PROJECT_NAME           = azapi_resource.foundry_project.name
     FOUNDRY_PROJECT_RG             = module.lz_data.rg.name
-    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_cognitive_account.foundry_hub.name}.cognitiveservices.azure.com"
+    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_cognitive_account.foundry_hub.name}.services.ai.azure.com/api/projects/${azapi_resource.foundry_project.name}"
     AGENT_NAME                     = "rag-agent"
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
   }
