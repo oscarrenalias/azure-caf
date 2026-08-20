@@ -10,10 +10,12 @@ data "azurerm_user_assigned_identity" "github_actions" {
   resource_group_name = "rgmi${var.number}"
 }
 
-# Scoped to the hub account so all projects within it are covered.
-resource "azurerm_role_assignment" "github_actions_ai_developer" {
+# Foundry Project Manager: includes Microsoft.CognitiveServices/* in dataActions,
+# which covers AIServices/agents/write required by azd hosted agent deployment.
+# Azure AI Developer only covers OpenAI/*, SpeechServices/*, ContentSafety/*, MaaS/*.
+resource "azurerm_role_assignment" "github_actions_foundry_manager" {
   scope                = azurerm_cognitive_account.foundry_hub.id
-  role_definition_name = "Azure AI Developer"
+  role_definition_name = "Foundry Project Manager"
   principal_id         = data.azurerm_user_assigned_identity.github_actions.principal_id
 }
 
