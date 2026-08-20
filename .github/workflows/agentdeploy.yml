@@ -173,8 +173,10 @@ jobs:
         working-directory: app
         run: |
           azd ai agent init --no-prompt 2>&1 || true
-          echo "=== files after init ==="
-          find . -maxdepth 3 \( -name "*.yaml" -o -name "*.json" \) | sort
+          echo "=== azure.yaml after init ==="
+          cat azure.yaml
+          echo "=== agent/agent.yaml ==="
+          cat agent/agent.yaml 2>/dev/null || echo "(not found)"
 
       - name: Deploy agent
         working-directory: app
