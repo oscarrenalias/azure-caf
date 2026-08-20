@@ -21,14 +21,31 @@ resource "azurerm_key_vault" "foundry" {
   sku_name            = "standard"
 }
 
-# Foundry Hub — workload-owned. No model deployments; models are accessed via the APIM connection.
-resource "azurerm_machine_learning_workspace" "hub" {
-  name                = "hub${random_id.foundry.hex}"
+resource "azurerm_log_analytics_workspace" "foundry" {
+  name                = "law${random_id.foundry.hex}"
   location            = module.lz_data.rg.location
   resource_group_name = module.lz_data.rg.name
-  kind                = "Hub"
-  storage_account_id  = azurerm_storage_account.foundry.id
-  key_vault_id        = azurerm_key_vault.foundry.id
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_application_insights" "foundry" {
+  name                = "appi${random_id.foundry.hex}"
+  location            = module.lz_data.rg.location
+  resource_group_name = module.lz_data.rg.name
+  workspace_id        = azurerm_log_analytics_workspace.foundry.id
+  application_type    = "web"
+}
+
+# Foundry Hub — workload-owned. No model deployments; models accessed via APIM connection.
+resource "azurerm_machine_learning_workspace" "hub" {
+  name                    = "hub${random_id.foundry.hex}"
+  location                = module.lz_data.rg.location
+  resource_group_name     = module.lz_data.rg.name
+  kind                    = "Hub"
+  storage_account_id      = azurerm_storage_account.foundry.id
+  key_vault_id            = azurerm_key_vault.foundry.id
+  application_insights_id = azurerm_application_insights.foundry.id
 
   identity {
     type = "SystemAssigned"
@@ -36,19 +53,18 @@ resource "azurerm_machine_learning_workspace" "hub" {
 }
 
 # Foundry Project — Agent Service runs here.
-resource "azurerm_machine_learning_workspace" "project" {
-  name                = "proj${random_id.foundry.hex}"
-  location            = module.lz_data.rg.location
+resource "azurerm_ai_foundry_project" "main" {
+  name              = "proj${random_id.foundry.hex}"
+  location          = module.lz_data.rg.location
   resource_group_name = module.lz_data.rg.name
-  kind                = "Project"
-  workspace_hub_id    = azurerm_machine_learning_workspace.hub.id
+  ai_foundry_id     = azurerm_machine_learning_workspace.hub.id
 
   identity {
     type = "SystemAssigned"
   }
 }
 
-# APIM connection on the Hub — shared to all projects.
+# APIM gateway connection on the Hub — shared to all projects.
 # Model reference in agent code: "apim-gateway/gpt-4o"
 resource "azapi_resource" "apim_connection" {
   type      = "Microsoft.MachineLearningServices/workspaces/connections@2024-10-01"
@@ -113,7 +129,7 @@ resource "azurerm_private_endpoint" "foundry_project" {
 
   private_service_connection {
     name                           = "psc-proj${random_id.foundry.hex}"
-    private_connection_resource_id = azurerm_machine_learning_workspace.project.id
+    private_connection_resource_id = azurerm_ai_foundry_project.main.id
     subresource_names              = ["amlworkspace"]
     is_manual_connection           = false
   }
@@ -125,7 +141,7 @@ resource "azurerm_private_endpoint" "foundry_project" {
 }
 
 output "foundry_project_name" {
-  value = azurerm_machine_learning_workspace.project.name
+  value = azurerm_ai_foundry_project.main.name
 }
 
 output "foundry_project_rg" {
