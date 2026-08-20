@@ -42,9 +42,9 @@ resource "azurerm_linux_web_app" "item" {
     SEARCH_API_KEY                 = azurerm_search_service.main.primary_key
     OPENAI_DEPLOYMENT              = "gpt-4o"
     OPENAI_API_VERSION             = "2024-11-01-preview"
-    FOUNDRY_PROJECT_NAME           = azurerm_ai_foundry_project.main.name
+    FOUNDRY_PROJECT_NAME           = azapi_resource.foundry_project.name
     FOUNDRY_PROJECT_RG             = module.lz_data.rg.name
-    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_ai_foundry_project.main.name}.${module.lz_data.rg.location}.api.azureml.ms"
+    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_cognitive_account.foundry_hub.name}.cognitiveservices.azure.com"
     AGENT_NAME                     = "rag-agent"
     SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
   }
