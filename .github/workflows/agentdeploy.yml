@@ -150,7 +150,7 @@ jobs:
           fi
 
       - name: Install azure.ai.agents extension
-        run: azd ext add azure.ai.agents --no-prompt
+        run: azd extension install azure.ai.agents --source azd
 
       - name: azd auth login
         run: |
