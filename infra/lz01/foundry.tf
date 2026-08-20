@@ -4,7 +4,6 @@ resource "random_id" "foundry" {
 
 data "azurerm_client_config" "current" {}
 
-# CognitiveServices-based Foundry Hub (AIServices account)
 resource "azurerm_cognitive_account" "foundry_hub" {
   name                          = "hub${random_id.foundry.hex}"
   location                      = module.lz_data.rg.location
@@ -13,15 +12,17 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   sku_name                      = "S0"
   custom_subdomain_name         = "hub${random_id.foundry.hex}"
   public_network_access_enabled = false
+  project_management_enabled    = true
 
   identity {
     type = "SystemAssigned"
   }
 }
 
-# Enable project management on the Hub.
-# This triggers Azure to provision a linked ML workspace, which is required
-# before CognitiveServices projects and connections can be created.
+# azapi_update_resource kept intentionally: removing it causes the provider to
+# revert allowProjectManagement to false via a DELETE-time PATCH.
+# project_management_enabled = true on the account above is the stable source
+# of truth; this resource is now a harmless no-op.
 resource "azapi_update_resource" "foundry_hub_enable_projects" {
   type        = "Microsoft.CognitiveServices/accounts@2025-04-01-preview"
   resource_id = azurerm_cognitive_account.foundry_hub.id
