@@ -1,0 +1,11 @@
+name: rag-app
+services:
+  rag-agent:
+    host: azure.ai.agent
+    project: agent
+    language: python
+    kind: hosted
+    docker:
+      context: .
+      path: agent/Dockerfile
+      remoteBuild: false

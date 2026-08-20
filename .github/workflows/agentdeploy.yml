@@ -96,3 +96,89 @@ jobs:
           echo "| Registry | \`${{ env.ACR_LOGIN_SERVER }}\` |" >>$GITHUB_STEP_SUMMARY
           echo "| Tagged | \`rag-agent:${{ env.IMAGE_TAG }}\` |" >>$GITHUB_STEP_SUMMARY
           echo "| Also | \`rag-agent:latest\` |" >>$GITHUB_STEP_SUMMARY
+
+  deploy-agent:
+    runs-on: self-hosted
+    needs: build-push
+    steps:
+      - name: Clean workspace
+        run: rm -rf ${{ github.workspace }}/app
+
+      - uses: actions/checkout@v7
+
+      - name: Environment variables
+        run: |
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+          grep -v '^\s*#' config/${{ github.event.inputs.environment }}.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+
+      - name: Resolve names
+        run: |
+          NUMBER=$(grep number config/global.tfvars | cut -d= -f2 | tr -d ' "')
+          LZ=$(grep '^lz ' config/${{ github.event.inputs.environment }}.tfvars | cut -d= -f2 | tr -d ' "')
+          echo "RESOURCE_GROUP=rg${NUMBER}-${LZ}" >>$GITHUB_ENV
+          TAG="${{ github.event.inputs.tag }}"
+          echo "IMAGE_TAG=${TAG:-${GITHUB_SHA::7}}" >>$GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Resolve ACR and Foundry project
+        run: |
+          ACR_NAME=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].name" -o tsv)
+          ACR_SERVER=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].loginServer" -o tsv)
+          echo "ACR_NAME=${ACR_NAME}" >>$GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=${ACR_SERVER}" >>$GITHUB_ENV
+
+          FOUNDRY_PROJECT=$(az resource list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --resource-type "Microsoft.MachineLearningServices/workspaces" \
+            --query "[?starts_with(name, 'proj')].name | [0]" -o tsv)
+          echo "FOUNDRY_PROJECT_NAME=${FOUNDRY_PROJECT}" >>$GITHUB_ENV
+
+      - name: Install azd
+        run: |
+          if ! command -v azd &>/dev/null; then
+            curl -fsSL https://aka.ms/install-azd.sh | bash
+          fi
+
+      - name: Install azure.ai.agents extension
+        run: azd ext add azure.ai.agents --force
+
+      - name: azd auth login
+        run: |
+          azd auth login \
+            --client-id "${{ env.ARM_CLIENT_ID }}" \
+            --federated-credential-provider github \
+            --tenant-id "${{ env.ARM_TENANT_ID }}"
+
+      - name: Configure azd environment
+        working-directory: app
+        run: |
+          azd env new lz01 --no-prompt 2>/dev/null || azd env select lz01
+          azd env set AZURE_SUBSCRIPTION_ID "${{ env.ARM_SUBSCRIPTION_ID }}"
+          azd env set AZURE_RESOURCE_GROUP "${{ env.RESOURCE_GROUP }}"
+          azd env set AZURE_AI_PROJECT_NAME "${{ env.FOUNDRY_PROJECT_NAME }}"
+          azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
+          azd env set AZURE_LOCATION "swedencentral"
+          azd env set SERVICE_RAG_AGENT_IMAGE_NAME \
+            "${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}"
+
+      - name: Deploy agent
+        working-directory: app
+        run: azd deploy
+
+      - name: Summary
+        run: |
+          echo "### Agent deployed to Foundry Agent Service" >>$GITHUB_STEP_SUMMARY
+          echo "| | |" >>$GITHUB_STEP_SUMMARY
+          echo "|---|---|" >>$GITHUB_STEP_SUMMARY
+          echo "| Project | \`${{ env.FOUNDRY_PROJECT_NAME }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}\` |" >>$GITHUB_STEP_SUMMARY
