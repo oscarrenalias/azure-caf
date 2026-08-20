@@ -53,9 +53,9 @@ jobs:
 
       - name: 'Environment variables'
         run: |
-          cat config/global.env >>$GITHUB_ENV
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV
           echo -e "\n" >>$GITHUB_ENV
-          cat config/${{ github.event.inputs.environment }}.env >>$GITHUB_ENV
+          grep -v '^\s*#' config/${{ github.event.inputs.environment }}.env | grep -v '^\s*$' >>$GITHUB_ENV
           echo -e "\n" >>$GITHUB_ENV
 
       - name: 'Terraform variables'
