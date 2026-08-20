@@ -202,7 +202,9 @@ jobs:
           python3 - <<'PYEOF'
           import os, textwrap
           project = os.environ["FOUNDRY_PROJECT_NAME"]
-          image   = os.environ["ACR_LOGIN_SERVER"] + "/rag-agent:" + os.environ["IMAGE_TAG"]
+          # azd azure.ai.agent always rebuilds from the project dir; docker.image is ignored.
+          # context: ../ → relative to app/agent/, resolves to app/ (where pyproject.toml lives)
+          # path: ./Dockerfile → relative to project dir (app/agent/Dockerfile)
           content = textwrap.dedent(f"""\
             name: rag-app
             services:
@@ -215,7 +217,8 @@ jobs:
                 uses:
                   - {project}
                 docker:
-                  image: {image}
+                  context: ../
+                  path: ./Dockerfile
                   remoteBuild: false
                 protocols:
                   - protocol: responses
