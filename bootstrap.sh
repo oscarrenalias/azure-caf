@@ -75,10 +75,19 @@ az role assignment create \
 
 echo ""
 echo "=== Creating OIDC federated credential for GitHub Actions ==="
+# GitHub Actions OIDC tokens include numeric user/repo IDs in the subject:
+# repo:<username>@<user_id>/<reponame>@<repo_id>:ref:refs/heads/main
+GH_USER=$(echo "$GITHUB_REPO" | cut -d/ -f1)
+GH_REPO_NAME=$(echo "$GITHUB_REPO" | cut -d/ -f2)
+GH_USER_ID=$(gh api user --jq '.id')
+GH_REPO_ID=$(gh api "repos/${GITHUB_REPO}" --jq '.id')
+OIDC_SUBJECT="repo:${GH_USER}@${GH_USER_ID}/${GH_REPO_NAME}@${GH_REPO_ID}:ref:refs/heads/main"
+echo "OIDC subject: $OIDC_SUBJECT"
+
 az identity federated-credential create --name "github" \
   --identity-name mihubspoke$NUMBER -g rgmi$NUMBER \
   --issuer "https://token.actions.githubusercontent.com" \
-  --subject "repo:${GITHUB_REPO}:ref:refs/heads/main" \
+  --subject "$OIDC_SUBJECT" \
   --audiences "api://AzureADTokenExchange"
 
 echo ""

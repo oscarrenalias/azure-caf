@@ -25,6 +25,11 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
+      - name: 'Clean workspace'
+        run: |
+          rm -f ${{ github.workspace }}/app1.zip
+          rm -rf ${{ github.workspace }}/app1
+
       - uses: actions/checkout@v7
 
       - name: 'Environment variables'

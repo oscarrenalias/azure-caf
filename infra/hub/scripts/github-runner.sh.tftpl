@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 echo "started $(date)" >> /tmp/runner.log
-sudo apt install -y jq curl zip unzip
+
+sudo apt-get update -y
+sudo apt-get install -y jq curl zip unzip
+
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
-node --version
+
 curl -fsSL 'https://azurecliprod.blob.core.windows.net/$root/deb_install.sh' | sudo bash
-mkdir actions-runner && cd actions-runner
+
+mkdir /actions-runner && cd /actions-runner
 curl -o actions-runner-linux-x64-2.336.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
 echo "04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d  actions-runner-linux-x64-2.336.0.tar.gz" | shasum -a 256 -c
 tar xzf ./actions-runner-linux-x64-2.336.0.tar.gz
 chown -R azureuser:azureuser /actions-runner
-sudo -u azureuser ./config.sh --url https://github.com/tvdvoorde/caf \
-            --token "${github_runner_pat}" \
-            --url "https://github.com/${github_repository}" \
-            --unattended \
-            --replace 
-sudo ./svc.sh install
-sudo ./svc.sh stop
-sudo ./svc.sh start
+
+# Runner is not ephemeral — it persists between jobs. appdeploy.yml cleans up
+# the workspace at the start of each run to avoid cross-job residue.
+sudo -u azureuser /actions-runner/config.sh \
+  --url "https://github.com/${github_repository}" \
+  --token "${github_runner_pat}" \
+  --unattended \
+  --replace
+
+sudo /actions-runner/svc.sh install azureuser
+sudo /actions-runner/svc.sh start
+
 echo "finished $(date)" >> /tmp/runner.log
