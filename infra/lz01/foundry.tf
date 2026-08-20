@@ -19,12 +19,28 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   }
 }
 
+# Enable project management on the Hub.
+# This triggers Azure to provision a linked ML workspace, which is required
+# before CognitiveServices projects and connections can be created.
+resource "azapi_update_resource" "foundry_hub_enable_projects" {
+  type        = "Microsoft.CognitiveServices/accounts@2025-04-01-preview"
+  resource_id = azurerm_cognitive_account.foundry_hub.id
+
+  body = {
+    properties = {
+      allowProjectManagement = true
+    }
+  }
+}
+
 # Project under the Hub — Agent Service runs here
 resource "azapi_resource" "foundry_project" {
   type      = "Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview"
   name      = "proj${random_id.foundry.hex}"
   parent_id = azurerm_cognitive_account.foundry_hub.id
   location  = module.lz_data.rg.location
+
+  depends_on = [azapi_update_resource.foundry_hub_enable_projects]
 
   body = {
     properties = {}
@@ -42,6 +58,8 @@ resource "azapi_resource" "apim_connection" {
   type      = "Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview"
   name      = "apim-gateway"
   parent_id = azurerm_cognitive_account.foundry_hub.id
+
+  depends_on = [azapi_update_resource.foundry_hub_enable_projects]
 
   body = {
     properties = {
