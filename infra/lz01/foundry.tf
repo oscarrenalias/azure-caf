@@ -87,6 +87,11 @@ data "azurerm_private_dns_zone" "openai" {
   resource_group_name = "rg${var.number}-${var.hub}"
 }
 
+data "azurerm_private_dns_zone" "ai_services" {
+  name                = "privatelink.services.ai.azure.com"
+  resource_group_name = "rg${var.number}-${var.hub}"
+}
+
 resource "azurerm_private_endpoint" "foundry_hub" {
   name                = "pe-hub${random_id.foundry.hex}"
   location            = module.lz_data.rg.location
@@ -105,6 +110,7 @@ resource "azurerm_private_endpoint" "foundry_hub" {
     private_dns_zone_ids = [
       data.azurerm_private_dns_zone.cognitive_services.id,
       data.azurerm_private_dns_zone.openai.id,
+      data.azurerm_private_dns_zone.ai_services.id,
     ]
   }
 }
