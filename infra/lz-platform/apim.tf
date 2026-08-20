@@ -219,6 +219,18 @@ output "apim_subscription_key" {
   description = "Primary subscription key for the ai-platform product. Use as api-key in SDK calls."
 }
 
+# Subscription issued to the lz01 workload app. Retrieve the key with:
+#   terraform output -raw apim_lz01_subscription_key
+# then set TF_VAR_apim_subscription_key in config/lz01.env before applying lz01.
+resource "azurerm_api_management_subscription" "lz01_workload" {
+  api_management_name = azurerm_api_management.main.name
+  resource_group_name = module.lz_data.rg.name
+  product_id          = azurerm_api_management_product.ai_platform.id
+  display_name        = "lz01 Workload App"
+  state               = "active"
+  allow_tracing       = false
+}
+
 output "apim_gateway_url" {
   value       = "https://${azurerm_api_management.main.name}.azure-api.net/openai"
   description = "Base URL for Azure OpenAI SDK — use this instead of the AI Foundry endpoint directly."
@@ -226,4 +238,10 @@ output "apim_gateway_url" {
 
 output "apim_name" {
   value = azurerm_api_management.main.name
+}
+
+output "apim_lz01_subscription_key" {
+  value       = azurerm_api_management_subscription.lz01_workload.primary_key
+  sensitive   = true
+  description = "APIM subscription key for the lz01 workload app. Set as TF_VAR_apim_subscription_key in config/lz01.env."
 }

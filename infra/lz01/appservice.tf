@@ -29,6 +29,18 @@ resource "azurerm_linux_web_app" "item" {
       python_version = "3.12"
     }
   }
+
+  app_settings = {
+    APIM_ENDPOINT                  = var.apim_gateway_url
+    APIM_API_KEY                   = var.apim_subscription_key
+    SEARCH_ENDPOINT                = "https://${azurerm_search_service.main.name}.search.windows.net"
+    SEARCH_API_KEY                 = azurerm_search_service.main.primary_key
+    OPENAI_DEPLOYMENT              = "gpt-4o"
+    OPENAI_API_VERSION             = "2024-11-01-preview"
+    FOUNDRY_PROJECT_NAME           = azurerm_machine_learning_workspace.project.name
+    FOUNDRY_PROJECT_RG             = module.lz_data.rg.name
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
+  }
 }
 
 resource "azurerm_private_endpoint" "app_service" {

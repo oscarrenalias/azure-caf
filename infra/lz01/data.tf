@@ -6,6 +6,17 @@ variable "lz" {
   type = string
 }
 
+variable "apim_gateway_url" {
+  type    = string
+  default = ""
+}
+
+variable "apim_subscription_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 module "lz_data" {
   source = "../modules/lz-data"
   number = var.number

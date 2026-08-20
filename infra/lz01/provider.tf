@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "4.81.0"
     }
+    azapi = {
+      source  = "azure/azapi"
+      version = "~> 2.0"
+    }
   }
   backend "azurerm" {
     container_name = "state"
@@ -12,6 +16,7 @@ terraform {
 }
 
 provider "azurerm" {
-  features {
-  }
-}   
+  features {}
+}
+
+provider "azapi" {}
