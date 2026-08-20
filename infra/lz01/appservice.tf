@@ -25,7 +25,8 @@ resource "azurerm_linux_web_app" "item" {
   https_only                    = true
 
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.appservice.id]
   }
 
   site_config {
