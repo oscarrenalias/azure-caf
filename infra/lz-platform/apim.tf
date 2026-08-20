@@ -205,6 +205,20 @@ resource "azurerm_private_dns_a_record" "apim_gateway" {
   records             = [azurerm_api_management.main.private_ip_addresses[0]]
 }
 
+resource "azurerm_api_management_subscription" "ai_platform_default" {
+  api_management_name = azurerm_api_management.main.name
+  resource_group_name = module.lz_data.rg.name
+  product_id          = azurerm_api_management_product.ai_platform.id
+  display_name        = "AI Platform Default"
+  state               = "active"
+}
+
+output "apim_subscription_key" {
+  value       = azurerm_api_management_subscription.ai_platform_default.primary_key
+  sensitive   = true
+  description = "Primary subscription key for the ai-platform product. Use as api-key in SDK calls."
+}
+
 output "apim_gateway_url" {
   value       = "https://${azurerm_api_management.main.name}.azure-api.net/openai"
   description = "Base URL for Azure OpenAI SDK — use this instead of the AI Foundry endpoint directly."
