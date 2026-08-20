@@ -11,5 +11,5 @@ subnets = [
 # Fill these from lz-platform Terraform outputs after applying lz-platform:
 #   apim_gateway_url    -> terraform -chdir=infra/lz-platform output -raw apim_gateway_url
 #   apim_subscription_key -> set as TF_VAR_apim_subscription_key in config/lz01.env (sensitive)
-apim_gateway_url = ""
+apim_gateway_url = "https://apim060260e4.azure-api.net/openai"
 
