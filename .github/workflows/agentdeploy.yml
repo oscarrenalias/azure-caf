@@ -143,6 +143,13 @@ jobs:
             --query "[?starts_with(name, 'proj')].name | [0]" -o tsv)
           echo "FOUNDRY_PROJECT_NAME=${FOUNDRY_PROJECT}" >>$GITHUB_ENV
 
+          FOUNDRY_PROJECT_ID=$(az resource show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --resource-type "Microsoft.MachineLearningServices/workspaces" \
+            --name "${FOUNDRY_PROJECT}" \
+            --query "id" -o tsv)
+          echo "FOUNDRY_PROJECT_ID=${FOUNDRY_PROJECT_ID}" >>$GITHUB_ENV
+
       - name: Install Docker
         run: |
           if ! command -v docker &>/dev/null; then
@@ -178,6 +185,7 @@ jobs:
           azd env set AZURE_SUBSCRIPTION_ID "${{ env.ARM_SUBSCRIPTION_ID }}"
           azd env set AZURE_RESOURCE_GROUP "${{ env.RESOURCE_GROUP }}"
           azd env set AZURE_AI_PROJECT_NAME "${{ env.FOUNDRY_PROJECT_NAME }}"
+          azd env set AZURE_AI_PROJECT_ID "${{ env.FOUNDRY_PROJECT_ID }}"
           azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
 
