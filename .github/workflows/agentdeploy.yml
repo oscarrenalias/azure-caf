@@ -1,0 +1,98 @@
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: lz01
+        type: choice
+        options:
+          - lz01
+      tag:
+        description: 'Image tag (leave empty to use the short git SHA)'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write
+  contents: read
+
+name: agentdeploy
+run-name: agentdeploy | ${{ github.event.inputs.environment }} | ${{ github.ref_name }} | ${{ github.sha }}
+
+jobs:
+  build-push:
+    runs-on: self-hosted
+    steps:
+      - name: Clean workspace
+        run: rm -rf ${{ github.workspace }}/app
+
+      - uses: actions/checkout@v7
+
+      - name: Environment variables
+        run: |
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+          grep -v '^\s*#' config/${{ github.event.inputs.environment }}.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+
+      - name: Resolve names
+        run: |
+          NUMBER=$(grep number config/global.tfvars | cut -d= -f2 | tr -d ' "')
+          LZ=$(grep '^lz ' config/${{ github.event.inputs.environment }}.tfvars | cut -d= -f2 | tr -d ' "')
+          echo "RESOURCE_GROUP=rg${NUMBER}-${LZ}" >>$GITHUB_ENV
+          TAG="${{ github.event.inputs.tag }}"
+          echo "IMAGE_TAG=${TAG:-${GITHUB_SHA::7}}" >>$GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Resolve ACR
+        run: |
+          ACR_NAME=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].name" -o tsv)
+          ACR_SERVER=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].loginServer" -o tsv)
+          echo "ACR_NAME=${ACR_NAME}" >>$GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=${ACR_SERVER}" >>$GITHUB_ENV
+
+      - name: Install Docker
+        run: |
+          if ! command -v docker &>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y docker.io
+            sudo systemctl start docker
+          fi
+          # Make the socket accessible to the runner user without sudo
+          sudo chmod 666 /var/run/docker.sock
+
+      - name: ACR login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build
+        run: |
+          docker build \
+            -f app/agent/Dockerfile \
+            -t ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }} \
+            app/
+
+      - name: Push
+        run: |
+          docker push ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}
+          docker tag \
+            ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }} \
+            ${{ env.ACR_LOGIN_SERVER }}/rag-agent:latest
+          docker push ${{ env.ACR_LOGIN_SERVER }}/rag-agent:latest
+
+      - name: Summary
+        run: |
+          echo "### Agent image pushed :rocket:" >>$GITHUB_STEP_SUMMARY
+          echo "| | |" >>$GITHUB_STEP_SUMMARY
+          echo "|---|---|" >>$GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ env.ACR_LOGIN_SERVER }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Tagged | \`rag-agent:${{ env.IMAGE_TAG }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Also | \`rag-agent:latest\` |" >>$GITHUB_STEP_SUMMARY
