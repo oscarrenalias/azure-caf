@@ -6,7 +6,7 @@ resource "azurerm_container_registry" "main" {
   name                          = "acr${random_id.acr.hex}"
   location                      = module.lz_data.rg.location
   resource_group_name           = module.lz_data.rg.name
-  sku                           = "Basic"
+  sku                           = "Premium"
   admin_enabled                 = false
   public_network_access_enabled = false
 }
