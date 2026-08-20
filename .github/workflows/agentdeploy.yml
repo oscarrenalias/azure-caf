@@ -169,14 +169,34 @@ jobs:
           azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
 
-      - name: Init agent definition
+      - name: Generate azure.yaml
         working-directory: app
         run: |
-          azd ai agent init --no-prompt 2>&1 || true
-          echo "=== azure.yaml after init ==="
+          cat > azure.yaml << EOF
+          name: rag-app
+          services:
+            rag-agent:
+              name: rag-agent
+              host: azure.ai.agent
+              project: agent
+              language: python
+              kind: hosted
+              uses:
+                - ${{ env.FOUNDRY_PROJECT_NAME }}
+              docker:
+                image: ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}
+              container:
+                resources:
+                  cpu: "0.5"
+                  memory: 1Gi
+              protocols:
+                - protocol: responses
+                  version: 2.0.0
+            ${{ env.FOUNDRY_PROJECT_NAME }}:
+              host: azure.ai.project
+          EOF
+          echo "=== Generated azure.yaml ==="
           cat azure.yaml
-          echo "=== agent/agent.yaml ==="
-          cat agent/agent.yaml 2>/dev/null || echo "(not found)"
 
       - name: Deploy agent
         working-directory: app
