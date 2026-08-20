@@ -119,24 +119,6 @@ resource "azurerm_private_endpoint" "foundry_hub" {
   }
 }
 
-resource "azurerm_private_endpoint" "foundry_project" {
-  name                = "pe-proj${random_id.foundry.hex}"
-  location            = module.lz_data.rg.location
-  resource_group_name = module.lz_data.rg.name
-  subnet_id           = azurerm_subnet.item["private-endpoint"].id
-
-  private_service_connection {
-    name                           = "psc-proj${random_id.foundry.hex}"
-    private_connection_resource_id = azurerm_ai_foundry_project.main.id
-    subresource_names              = ["amlworkspace"]
-    is_manual_connection           = false
-  }
-
-  private_dns_zone_group {
-    name                 = "privatelink-proj"
-    private_dns_zone_ids = [data.azurerm_private_dns_zone.ml_api.id]
-  }
-}
 
 output "foundry_project_name" {
   value = azurerm_ai_foundry_project.main.name
