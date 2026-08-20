@@ -38,11 +38,10 @@ resource "azurerm_application_insights" "foundry" {
 }
 
 # Foundry Hub — workload-owned. No model deployments; models accessed via APIM connection.
-resource "azurerm_machine_learning_workspace" "hub" {
+resource "azurerm_ai_foundry" "hub" {
   name                    = "hub${random_id.foundry.hex}"
   location                = module.lz_data.rg.location
   resource_group_name     = module.lz_data.rg.name
-  kind                    = "Hub"
   storage_account_id      = azurerm_storage_account.foundry.id
   key_vault_id            = azurerm_key_vault.foundry.id
   application_insights_id = azurerm_application_insights.foundry.id
@@ -54,10 +53,9 @@ resource "azurerm_machine_learning_workspace" "hub" {
 
 # Foundry Project — Agent Service runs here.
 resource "azurerm_ai_foundry_project" "main" {
-  name              = "proj${random_id.foundry.hex}"
-  location          = module.lz_data.rg.location
-  resource_group_name = module.lz_data.rg.name
-  ai_foundry_id     = azurerm_machine_learning_workspace.hub.id
+  name               = "proj${random_id.foundry.hex}"
+  location           = module.lz_data.rg.location
+  ai_services_hub_id = azurerm_ai_foundry.hub.id
 
   identity {
     type = "SystemAssigned"
@@ -69,7 +67,7 @@ resource "azurerm_ai_foundry_project" "main" {
 resource "azapi_resource" "apim_connection" {
   type      = "Microsoft.MachineLearningServices/workspaces/connections@2024-10-01"
   name      = "apim-gateway"
-  parent_id = azurerm_machine_learning_workspace.hub.id
+  parent_id = azurerm_ai_foundry.hub.id
 
   body = {
     properties = {
@@ -110,7 +108,7 @@ resource "azurerm_private_endpoint" "foundry_hub" {
 
   private_service_connection {
     name                           = "psc-hub${random_id.foundry.hex}"
-    private_connection_resource_id = azurerm_machine_learning_workspace.hub.id
+    private_connection_resource_id = azurerm_ai_foundry.hub.id
     subresource_names              = ["amlworkspace"]
     is_manual_connection           = false
   }
@@ -149,5 +147,5 @@ output "foundry_project_rg" {
 }
 
 output "foundry_hub_name" {
-  value = azurerm_machine_learning_workspace.hub.name
+  value = azurerm_ai_foundry.hub.name
 }
