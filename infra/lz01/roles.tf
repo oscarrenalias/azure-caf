@@ -1,3 +1,15 @@
+# GitHub Actions managed identity — needs Azure AI Developer to deploy agents via azd.
+data "azurerm_user_assigned_identity" "github_actions" {
+  name                = "mihubspoke${var.number}"
+  resource_group_name = "rgmi${var.number}"
+}
+
+resource "azurerm_role_assignment" "github_actions_ai_developer" {
+  scope                = azapi_resource.foundry_project.id
+  role_definition_name = "Azure AI Developer"
+  principal_id         = data.azurerm_user_assigned_identity.github_actions.principal_id
+}
+
 resource "azurerm_user_assigned_identity" "appservice" {
   name                = "id-app${random_id.app_service.hex}"
   location            = module.lz_data.rg.location
