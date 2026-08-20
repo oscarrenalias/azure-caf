@@ -168,8 +168,6 @@ jobs:
           azd env set AZURE_AI_PROJECT_NAME "${{ env.FOUNDRY_PROJECT_NAME }}"
           azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
-          azd env set SERVICE_RAG_AGENT_IMAGE_NAME \
-            "${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}"
 
       - name: Deploy agent
         working-directory: app

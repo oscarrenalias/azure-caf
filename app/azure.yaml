@@ -6,6 +6,6 @@ services:
     language: python
     kind: hosted
     docker:
-      context: .
-      path: agent/Dockerfile
+      context: ../
+      path: ./Dockerfile
       remoteBuild: false
