@@ -8,7 +8,9 @@ resource "azurerm_container_registry" "main" {
   resource_group_name           = module.lz_data.rg.name
   sku                           = "Premium"
   admin_enabled                 = false
-  public_network_access_enabled = false
+  # Public access required: the Foundry hosted agent platform pulls images
+  # from Azure-managed infrastructure outside our VNet.
+  public_network_access_enabled = true
 }
 
 data "azurerm_private_dns_zone" "acr" {
