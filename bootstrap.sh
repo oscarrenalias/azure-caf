@@ -1,30 +1,95 @@
+set -euo pipefail
 
-export location="swedencentral"
-export number=15712567827395
+source config/global.env
 
-az group create --name rgstate$number --location $location
-az group create --name rgmi$number --location $location
+# Register all resource providers required by this repo and wait for completion
+PROVIDERS=(
+  Microsoft.Storage
+  Microsoft.Network
+  Microsoft.Compute
+  Microsoft.Web
+  Microsoft.CognitiveServices
+  Microsoft.ManagedIdentity
+  Microsoft.Authorization
+  Microsoft.App
+)
 
-az storage account create --name sa$number --resource-group rgstate$number --location $location --sku Standard_LRS
-az storage container create --name state --account-name sa$number
+echo "=== Registering resource providers ==="
+for ns in "${PROVIDERS[@]}"; do
+  state=$(az provider show --namespace "$ns" --query registrationState -o tsv 2>/dev/null || echo "Unknown")
+  if [[ "$state" != "Registered" ]]; then
+    echo "Registering $ns..."
+    az provider register --namespace "$ns"
+  else
+    echo "$ns: already registered"
+  fi
+done
 
+echo "Waiting for all providers to reach Registered state..."
+for ns in "${PROVIDERS[@]}"; do
+  while true; do
+    state=$(az provider show --namespace "$ns" --query registrationState -o tsv)
+    if [[ "$state" == "Registered" ]]; then
+      echo "$ns: Registered"
+      break
+    fi
+    echo "$ns: $state — waiting..."
+    sleep 5
+  done
+done
 
-idplatform=$(az identity create --name mihubspoke$number --resource-group rgmi$number --query "principalId" -o tsv)
-idplatformclientid=$(az identity show -g rgmi$number -n mihubspoke$number --query "clientId" -o tsv)
+echo ""
+echo "=== Creating resource groups ==="
+az group create --name rgstate$NUMBER --location $LOCATION --output table
+az group create --name rgmi$NUMBER --location $LOCATION --output table
 
-subscriptionid=$(az account show| jq -r '.id')
+echo ""
+echo "=== Creating storage account and container for Terraform state ==="
+az storage account create \
+  --name sa$NUMBER \
+  --resource-group rgstate$NUMBER \
+  --location $LOCATION \
+  --sku Standard_LRS \
+  --output table
 
-az role assignment create --assignee-object-id $idplatform --assignee-principal-type ServicePrincipal --role "Owner" --scope "/subscriptions/$subscriptionid"
+az storage container create \
+  --name state \
+  --account-name sa$NUMBER \
+  --auth-mode login
 
+echo ""
+echo "=== Creating managed identity ==="
+idplatform=$(az identity create --name mihubspoke$NUMBER --resource-group rgmi$NUMBER --query "principalId" -o tsv)
+idplatformclientid=$(az identity show -g rgmi$NUMBER -n mihubspoke$NUMBER --query "clientId" -o tsv)
+
+subscriptionid=$(az account show --query id -o tsv)
+
+echo ""
+echo "=== Assigning Owner role to managed identity at subscription scope ==="
+az role assignment create \
+  --assignee-object-id $idplatform \
+  --assignee-principal-type ServicePrincipal \
+  --role "Owner" \
+  --scope "/subscriptions/$subscriptionid" \
+  --output table
+
+echo ""
+echo "=== Creating OIDC federated credential for GitHub Actions ==="
 az identity federated-credential create --name "github" \
-  --identity-name mihubspoke$number -g rgmi$number \
+  --identity-name mihubspoke$NUMBER -g rgmi$NUMBER \
   --issuer "https://token.actions.githubusercontent.com" \
-  --subject "repo:tvdvoorde@28575822/caf@1334094652:ref:refs/heads/main" \
+  --subject "repo:${GITHUB_REPO}:ref:refs/heads/main" \
   --audiences "api://AzureADTokenExchange"
 
-echo ARM_CLIENT_ID=$idplatformclientid
-echo ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-echo ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-echo STORAGE_ACCOUNT_NAME=sa$number
-echo STORAGE_RESOURCE_GROUP=rgstate$number
-echo "number = $number"
+echo ""
+echo "=== Bootstrap complete ==="
+echo "Copy the following values into config/global.env (outputs section):"
+echo ""
+echo "ARM_CLIENT_ID=$idplatformclientid"
+echo "ARM_TENANT_ID=$(az account show --query tenantId -o tsv)"
+echo "ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)"
+echo "STORAGE_ACCOUNT_NAME=sa$NUMBER"
+echo "STORAGE_RESOURCE_GROUP=rgstate$NUMBER"
+echo ""
+echo "Also ensure config/global.tfvars has:"
+echo "number = $NUMBER"

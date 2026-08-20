@@ -81,7 +81,7 @@ resource "azurerm_network_security_group" "rule1" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_ranges    = ["22", "3389"]
-    source_address_prefix      = "83.83.37.87/32"
+    source_address_prefix      = "170.252.125.30/32"
     destination_address_prefix = "*"
   }
 
