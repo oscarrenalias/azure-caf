@@ -13,14 +13,18 @@ from tools import search_knowledge_base
 
 
 def main() -> None:
+    # Use the platform-injected instance identity to avoid ambiguous-identity
+    # errors when multiple managed identities are present in the container.
+    credential = DefaultAzureCredential(
+        managed_identity_client_id=os.environ.get("FOUNDRY_AGENT_INSTANCE_CLIENT_ID"),
+    )
     model = AzureAIOpenAIApiChatModel(
         project_endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
-        credential=DefaultAzureCredential(),
+        credential=credential,
         model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
     )
     graph = create_agent(model, tools=[search_knowledge_base])
-    port = int(os.environ.get("PORT", "8088"))
-    ResponsesHostServer(graph).run(port=port)
+    ResponsesHostServer(graph).run()
 
 
 if __name__ == "__main__":

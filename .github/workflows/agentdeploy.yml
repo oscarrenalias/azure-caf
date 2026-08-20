@@ -199,34 +199,35 @@ jobs:
       - name: Generate azure.yaml
         working-directory: app
         run: |
-          cat > azure.yaml << EOF
-          name: rag-app
-          services:
-            rag-agent:
-              name: rag-agent
-              host: azure.ai.agent
-              project: agent
-              language: python
-              kind: hosted
-              uses:
-                - ${{ env.FOUNDRY_PROJECT_NAME }}
-              docker:
-                image: ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }}
-                context: ../
-                path: ./Dockerfile
-                remoteBuild: false
-              container:
-                resources:
-                  cpu: "0.5"
-                  memory: 1Gi
-              protocols:
-                - protocol: responses
-                  version: 2.0.0
-            ${{ env.FOUNDRY_PROJECT_NAME }}:
-              host: azure.ai.project
-          EOF
-          echo "=== Generated azure.yaml ==="
-          cat azure.yaml
+          python3 - <<'PYEOF'
+          import os, textwrap
+          project = os.environ["FOUNDRY_PROJECT_NAME"]
+          image   = os.environ["ACR_LOGIN_SERVER"] + "/rag-agent:" + os.environ["IMAGE_TAG"]
+          content = textwrap.dedent(f"""\
+            name: rag-app
+            services:
+              rag-agent:
+                name: rag-agent
+                host: azure.ai.agent
+                project: agent
+                language: python
+                kind: hosted
+                uses:
+                  - {project}
+                docker:
+                  image: {image}
+                  remoteBuild: false
+                protocols:
+                  - protocol: responses
+                    version: 2.0.0
+              {project}:
+                host: azure.ai.project
+          """)
+          with open("azure.yaml", "w") as f:
+              f.write(content)
+          print("=== Generated azure.yaml ===")
+          print(content)
+          PYEOF
 
       - name: Deploy agent
         working-directory: app
