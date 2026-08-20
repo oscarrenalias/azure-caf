@@ -3,7 +3,7 @@
 resource "azurerm_role_assignment" "appservice_ai_developer" {
   scope                = azurerm_ai_foundry_project.main.id
   role_definition_name = "Azure AI Developer"
-  principal_id         = azurerm_linux_web_app.item.identity[0].principal_id
+  principal_id         = azurerm_linux_web_app.item.identity.principal_id
 }
 
 # App Service managed identity → AcrPull on ACR.
@@ -11,5 +11,5 @@ resource "azurerm_role_assignment" "appservice_ai_developer" {
 resource "azurerm_role_assignment" "appservice_acr_pull" {
   scope                = azurerm_container_registry.main.id
   role_definition_name = "AcrPull"
-  principal_id         = azurerm_linux_web_app.item.identity[0].principal_id
+  principal_id         = azurerm_linux_web_app.item.identity.principal_id
 }

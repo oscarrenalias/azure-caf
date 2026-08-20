@@ -43,7 +43,7 @@ resource "azurerm_cognitive_deployment" "text_embedding" {
   }
 
   sku {
-    name     = "Standard"
+    name     = "GlobalStandard"
     capacity = 120
   }
 }
