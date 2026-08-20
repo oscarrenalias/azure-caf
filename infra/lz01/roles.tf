@@ -38,6 +38,6 @@ resource "azurerm_role_assignment" "appservice_acr_pull" {
 # Required for the Agent Service platform to pull the agent container image.
 resource "azurerm_role_assignment" "foundry_project_acr_pull" {
   scope                = azurerm_container_registry.main.id
-  role_definition_name = "Container Registry Repository Reader"
+  role_definition_name = "AcrPull"
   principal_id         = azapi_resource.foundry_project.output.identity.principalId
 }
