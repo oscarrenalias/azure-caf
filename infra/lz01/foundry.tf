@@ -50,6 +50,10 @@ resource "azapi_resource" "foundry_project" {
   }
 
   response_export_values = ["*"]
+
+  lifecycle {
+    ignore_changes = [body, output]
+  }
 }
 
 # APIM gateway connection on the Hub — shared to all projects.
@@ -74,6 +78,11 @@ resource "azapi_resource" "apim_connection" {
         Kind       = "AzureOpenAI"
       }
     }
+  }
+
+  # Azure masks secrets in GET responses, so body always drifts on credential fields.
+  lifecycle {
+    ignore_changes = [body]
   }
 }
 
