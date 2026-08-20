@@ -169,19 +169,12 @@ jobs:
           azd env set AZURE_CONTAINER_REGISTRY_NAME "${{ env.ACR_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
 
-      - name: Debug azd agent config
+      - name: Init agent definition
         working-directory: app
         run: |
-          echo "=== azd version ==="
-          azd version
-          echo "=== azure.yaml ==="
-          cat azure.yaml
-          echo "=== agent.yaml ==="
-          cat agent/agent.yaml
-          echo "=== azd ai agent commands ==="
-          azd ai agent --help 2>&1 || true
-          echo "=== azd env values ==="
-          azd env get-values 2>&1 || true
+          azd ai agent init --no-prompt 2>&1 || true
+          echo "=== files after init ==="
+          find . -maxdepth 3 \( -name "*.yaml" -o -name "*.json" \) | sort
 
       - name: Deploy agent
         working-directory: app
