@@ -240,10 +240,10 @@ jobs:
         if: failure()
         working-directory: app
         run: |
-          echo "=== azd ai agent show (structured error) ==="
-          azd ai agent show --name rag-agent 2>&1 || true
+          echo "=== azd ai agent show ==="
+          azd ai agent show rag-agent 2>&1 || true
           echo "=== All agent versions ==="
-          azd ai agent version list --name rag-agent 2>&1 || true
+          azd ai agent version list rag-agent 2>&1 || true
 
       - name: Summary
         run: |
