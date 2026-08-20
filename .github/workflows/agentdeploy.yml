@@ -137,17 +137,22 @@ jobs:
           echo "ACR_NAME=${ACR_NAME}" >>$GITHUB_ENV
           echo "ACR_LOGIN_SERVER=${ACR_SERVER}" >>$GITHUB_ENV
 
-          FOUNDRY_PROJECT=$(az resource list \
+          FOUNDRY_HUB=$(az resource list \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --resource-type "Microsoft.MachineLearningServices/workspaces" \
-            --query "[?starts_with(name, 'proj')].name | [0]" -o tsv)
+            --resource-type "Microsoft.CognitiveServices/accounts" \
+            --query "[?starts_with(name, 'hub')].name | [0]" -o tsv)
+          echo "FOUNDRY_HUB_NAME=${FOUNDRY_HUB}" >>$GITHUB_ENV
+
+          FOUNDRY_HUB_ID=$(az resource show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --resource-type "Microsoft.CognitiveServices/accounts" \
+            --name "${FOUNDRY_HUB}" \
+            --query "id" -o tsv)
+
+          FOUNDRY_PROJECT="proj${FOUNDRY_HUB#hub}"
           echo "FOUNDRY_PROJECT_NAME=${FOUNDRY_PROJECT}" >>$GITHUB_ENV
 
-          FOUNDRY_PROJECT_ID=$(az resource show \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --resource-type "Microsoft.MachineLearningServices/workspaces" \
-            --name "${FOUNDRY_PROJECT}" \
-            --query "id" -o tsv)
+          FOUNDRY_PROJECT_ID="${FOUNDRY_HUB_ID}/projects/${FOUNDRY_PROJECT}"
           echo "FOUNDRY_PROJECT_ID=${FOUNDRY_PROJECT_ID}" >>$GITHUB_ENV
 
       - name: Install Docker

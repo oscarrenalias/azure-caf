@@ -7,7 +7,7 @@ resource "azurerm_user_assigned_identity" "appservice" {
 # App Service managed identity → Azure AI Developer on the Foundry Project.
 # Allows the web UI to invoke agents and read project resources.
 resource "azurerm_role_assignment" "appservice_ai_developer" {
-  scope                = azurerm_ai_foundry_project.main.id
+  scope                = azapi_resource.foundry_project.id
   role_definition_name = "Azure AI Developer"
   principal_id         = azurerm_user_assigned_identity.appservice.principal_id
 }
@@ -25,5 +25,5 @@ resource "azurerm_role_assignment" "appservice_acr_pull" {
 resource "azurerm_role_assignment" "foundry_project_acr_pull" {
   scope                = azurerm_container_registry.main.id
   role_definition_name = "Container Registry Repository Reader"
-  principal_id         = azurerm_ai_foundry_project.main.identity[0].principal_id
+  principal_id         = azapi_resource.foundry_project.output.identity.principalId
 }

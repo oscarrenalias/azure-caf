@@ -4,70 +4,44 @@ resource "random_id" "foundry" {
 
 data "azurerm_client_config" "current" {}
 
-resource "azurerm_storage_account" "foundry" {
-  name                     = "st${random_id.foundry.hex}"
-  location                 = module.lz_data.rg.location
-  resource_group_name      = module.lz_data.rg.name
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  min_tls_version          = "TLS1_2"
-}
-
-resource "azurerm_key_vault" "foundry" {
-  name                = "kv${random_id.foundry.hex}"
-  location            = module.lz_data.rg.location
-  resource_group_name = module.lz_data.rg.name
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  sku_name            = "standard"
-}
-
-resource "azurerm_log_analytics_workspace" "foundry" {
-  name                = "law${random_id.foundry.hex}"
-  location            = module.lz_data.rg.location
-  resource_group_name = module.lz_data.rg.name
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
-}
-
-resource "azurerm_application_insights" "foundry" {
-  name                = "appi${random_id.foundry.hex}"
-  location            = module.lz_data.rg.location
-  resource_group_name = module.lz_data.rg.name
-  workspace_id        = azurerm_log_analytics_workspace.foundry.id
-  application_type    = "web"
-}
-
-# Foundry Hub — workload-owned. No model deployments; models accessed via APIM connection.
-resource "azurerm_ai_foundry" "hub" {
-  name                    = "hub${random_id.foundry.hex}"
-  location                = module.lz_data.rg.location
-  resource_group_name     = module.lz_data.rg.name
-  storage_account_id      = azurerm_storage_account.foundry.id
-  key_vault_id            = azurerm_key_vault.foundry.id
-  application_insights_id = azurerm_application_insights.foundry.id
+# CognitiveServices-based Foundry Hub (AIServices account)
+resource "azurerm_cognitive_account" "foundry_hub" {
+  name                          = "hub${random_id.foundry.hex}"
+  location                      = module.lz_data.rg.location
+  resource_group_name           = module.lz_data.rg.name
+  kind                          = "AIServices"
+  sku_name                      = "S0"
+  custom_subdomain_name         = "hub${random_id.foundry.hex}"
+  public_network_access_enabled = false
 
   identity {
     type = "SystemAssigned"
   }
 }
 
-# Foundry Project — Agent Service runs here.
-resource "azurerm_ai_foundry_project" "main" {
-  name               = "proj${random_id.foundry.hex}"
-  location           = module.lz_data.rg.location
-  ai_services_hub_id = azurerm_ai_foundry.hub.id
+# Project under the Hub — Agent Service runs here
+resource "azapi_resource" "foundry_project" {
+  type      = "Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview"
+  name      = "proj${random_id.foundry.hex}"
+  parent_id = azurerm_cognitive_account.foundry_hub.id
+  location  = module.lz_data.rg.location
 
-  identity {
-    type = "SystemAssigned"
+  body = {
+    properties = {}
+    identity = {
+      type = "SystemAssigned"
+    }
   }
+
+  response_export_values = ["*"]
 }
 
 # APIM gateway connection on the Hub — shared to all projects.
 # Model reference in agent code: "apim-gateway/gpt-4o"
 resource "azapi_resource" "apim_connection" {
-  type      = "Microsoft.MachineLearningServices/workspaces/connections@2024-10-01"
+  type      = "Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview"
   name      = "apim-gateway"
-  parent_id = azurerm_ai_foundry.hub.id
+  parent_id = azurerm_cognitive_account.foundry_hub.id
 
   body = {
     properties = {
@@ -95,11 +69,6 @@ data "azurerm_private_dns_zone" "openai" {
   resource_group_name = "rg${var.number}-${var.hub}"
 }
 
-data "azurerm_private_dns_zone" "ml_api" {
-  name                = "privatelink.api.azureml.ms"
-  resource_group_name = "rg${var.number}-${var.hub}"
-}
-
 resource "azurerm_private_endpoint" "foundry_hub" {
   name                = "pe-hub${random_id.foundry.hex}"
   location            = module.lz_data.rg.location
@@ -108,20 +77,26 @@ resource "azurerm_private_endpoint" "foundry_hub" {
 
   private_service_connection {
     name                           = "psc-hub${random_id.foundry.hex}"
-    private_connection_resource_id = azurerm_ai_foundry.hub.id
-    subresource_names              = ["amlworkspace"]
+    private_connection_resource_id = azurerm_cognitive_account.foundry_hub.id
+    subresource_names              = ["account"]
     is_manual_connection           = false
   }
 
   private_dns_zone_group {
-    name                 = "privatelink-hub"
-    private_dns_zone_ids = [data.azurerm_private_dns_zone.ml_api.id]
+    name = "privatelink-hub"
+    private_dns_zone_ids = [
+      data.azurerm_private_dns_zone.cognitive_services.id,
+      data.azurerm_private_dns_zone.openai.id,
+    ]
   }
 }
 
-
 output "foundry_project_name" {
-  value = azurerm_ai_foundry_project.main.name
+  value = azapi_resource.foundry_project.name
+}
+
+output "foundry_project_id" {
+  value = azapi_resource.foundry_project.id
 }
 
 output "foundry_project_rg" {
@@ -129,5 +104,5 @@ output "foundry_project_rg" {
 }
 
 output "foundry_hub_name" {
-  value = azurerm_ai_foundry.hub.name
+  value = azurerm_cognitive_account.foundry_hub.name
 }
