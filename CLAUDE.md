@@ -144,6 +144,7 @@ Four skills are available in `.claude/commands/` to automate the most common wor
 | add-landing-zone | `/add-landing-zone` | Adding a new LZ (lz02, lz03, …) to the existing hub |
 | deploy-app | `/deploy-app` | Deploying or updating an app on an existing landing zone's App Service |
 | teardown | `/teardown` | Destroying resources in safe reverse order (LZs first, hub last) |
+| pause-resume | `/pause-resume` | Pause (destroy firewall + deallocate VM, saves ~$1.25/hr) or resume (recreate firewall + start VM, ~10 min) |
 
 ### `/deploy-hub-spoke`
 

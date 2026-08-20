@@ -1,0 +1,91 @@
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        type: choice
+        options:
+          - pause
+          - resume
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_USE_OIDC: true
+
+name: pause-resume
+run-name: "${{ github.event.inputs.action }} hub resources | ${{ github.ref_name }}"
+
+jobs:
+  pause-resume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Environment variables
+        run: |
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+
+      - name: Terraform variables
+        run: |
+          cat config/global.tfvars >> infra/hub/value.auto.tfvars
+          echo -e "\n" >> infra/hub/value.auto.tfvars
+          cat config/hub.tfvars >> infra/hub/value.auto.tfvars
+
+      - name: Terraform init
+        run: |
+          terraform -chdir=infra/hub init \
+            -backend-config="key=hub.tfstate" \
+            -backend-config="resource_group_name=${{ env.STORAGE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}"
+
+      # ── PAUSE ──────────────────────────────────────────────────────────────
+      - name: Deallocate jump VM
+        if: inputs.action == 'pause'
+        run: |
+          source config/global.env
+          az vm deallocate \
+            --resource-group rg${NUMBER}-hub \
+            --name jump7 \
+            --no-wait
+          echo "VM deallocate triggered (async — firewall destroy proceeds in parallel)"
+
+      - name: Destroy firewall resources
+        if: inputs.action == 'pause'
+        run: |
+          terraform -chdir=infra/hub destroy -input=false -auto-approve \
+            -target=azurerm_firewall_network_rule_collection.all \
+            -target=azurerm_firewall.hub \
+            -target=azurerm_public_ip.fwpip
+          echo "Firewall destroyed. Savings: ~\$1.25/hr (~\$900/month)"
+
+      # ── RESUME ─────────────────────────────────────────────────────────────
+      - name: Recreate firewall (terraform apply)
+        if: inputs.action == 'resume'
+        run: |
+          terraform -chdir=infra/hub apply -input=false -auto-approve
+          echo "Firewall restored. Route table updated with new firewall private IP."
+
+      - name: Start jump VM
+        if: inputs.action == 'resume'
+        run: |
+          source config/global.env
+          az vm start \
+            --resource-group rg${NUMBER}-hub \
+            --name jump7
+          echo "VM started. Self-hosted runner should come online within ~2 minutes."
