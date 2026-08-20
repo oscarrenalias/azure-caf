@@ -10,6 +10,7 @@ on:
         options:
           - hub
           - lz01
+          - lz-platform
       action:
         description: 'Action'
         required: true

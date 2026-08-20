@@ -73,6 +73,7 @@ variable "dnszones" {
     { name = "privatelink.azurewebsites.net" },
     { name = "privatelink.cognitiveservices.azure.com" },
     { name = "privatelink.openai.azure.com" },
+    { name = "azure-api.net" },
   ]
 }
 
