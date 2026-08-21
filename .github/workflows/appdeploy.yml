@@ -63,7 +63,7 @@ jobs:
           uv sync --frozen
           zip -r ../../ui.zip .
 
-      - name: Deploy
+      - name: Configure App Service
         run: |
           az webapp config appsettings set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -73,6 +73,11 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
             --startup-file ".venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000"
+          echo "Waiting 30s for App Service to restart after settings change..."
+          sleep 30
+
+      - name: Deploy
+        run: |
           az webapp deploy \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
