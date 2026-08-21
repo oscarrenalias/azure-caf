@@ -39,8 +39,8 @@ _credential = DefaultAzureCredential()
 
 
 def _token() -> str:
-    logger.debug("Acquiring token for cognitiveservices scope")
-    tok = _credential.get_token("https://cognitiveservices.azure.com/.default")
+    logger.debug("Acquiring token for ai.azure.com scope")
+    tok = _credential.get_token("https://ai.azure.com/.default")
     logger.debug("Token acquired, expires at %s", tok.expires_on)
     return tok.token
 
