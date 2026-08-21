@@ -19,11 +19,12 @@ resource "azurerm_role_assignment" "github_actions_foundry_manager" {
   principal_id         = data.azurerm_user_assigned_identity.github_actions.principal_id
 }
 
-# App Service managed identity → Azure AI Developer on the Foundry Hub.
-# Allows the web UI to invoke agents and read project resources.
+# App Service managed identity → Foundry Project Manager on the Foundry Hub.
+# Azure AI Developer is insufficient to invoke hosted agent responses endpoints;
+# Foundry Project Manager includes the broader data-plane actions needed.
 resource "azurerm_role_assignment" "appservice_ai_developer" {
   scope                = azurerm_cognitive_account.foundry_hub.id
-  role_definition_name = "Azure AI Developer"
+  role_definition_name = "Foundry Project Manager"
   principal_id         = azurerm_user_assigned_identity.appservice.principal_id
 }
 
