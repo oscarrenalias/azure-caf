@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/azurelinux/base/python:3.12
+FROM mcr.microsoft.com/azurelinux/base/python:3.13
 WORKDIR /app
 COPY . user_agent/
 WORKDIR /app/user_agent

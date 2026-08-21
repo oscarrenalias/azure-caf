@@ -7,7 +7,7 @@ services:
     language: python
     kind: hosted
     codeConfiguration:
-      runtime: python_3_12
+      runtime: python_3_13
       entryPoint: main.py
     docker:
       path: ./Dockerfile
