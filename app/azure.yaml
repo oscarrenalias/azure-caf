@@ -9,6 +9,8 @@ services:
     codeConfiguration:
       runtime: python_3_12
       entryPoint: main.py
+    docker:
+      path: ./Dockerfile
     protocols:
       - protocol: responses
         version: 2.0.0

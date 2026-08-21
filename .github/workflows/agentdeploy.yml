@@ -214,6 +214,8 @@ jobs:
                 codeConfiguration:
                   runtime: python_3_12
                   entryPoint: main.py
+                docker:
+                  path: ./Dockerfile
                 uses:
                   - {project}
                 protocols:
@@ -239,7 +241,7 @@ jobs:
 
       - name: Deploy agent
         working-directory: app
-        run: azd deploy --debug
+        run: azd deploy
 
       - name: Show agent status on failure
         if: failure()
