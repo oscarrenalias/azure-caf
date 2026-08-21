@@ -52,17 +52,27 @@ jobs:
           tenant-id: ${{ env.ARM_TENANT_ID }}
           subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
 
+      - name: Setup uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Package
         run: |
           cd app/ui
+          uv sync --frozen
           zip -r ../../ui.zip .
 
       - name: Deploy
         run: |
+          az webapp config appsettings set \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ github.event.inputs.appservice }} \
+            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false
           az webapp config set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --startup-file "uvicorn main:app --host 0.0.0.0 --port 8000"
+            --startup-file ".venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000"
           az webapp deploy \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
