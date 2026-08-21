@@ -48,6 +48,7 @@ resource "azurerm_linux_web_app" "item" {
     FOUNDRY_PROJECT_ENDPOINT = "https://${azurerm_cognitive_account.foundry_hub.name}.services.ai.azure.com/api/projects/${azapi_resource.foundry_project.name}"
     AGENT_NAME               = "rag-agent"
     WEBSITES_PORT            = "8000"
+    AZURE_CLIENT_ID          = azurerm_user_assigned_identity.appservice.client_id
   }
 }
 
