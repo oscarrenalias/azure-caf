@@ -13,6 +13,10 @@ on:
         description: 'App Service name'
         required: true
         type: string
+      tag:
+        description: 'Image tag (leave empty to use the short git SHA)'
+        required: false
+        default: ''
 
 permissions:
   id-token: write
@@ -25,25 +29,25 @@ jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: 'Clean workspace'
-        run: |
-          rm -f ${{ github.workspace }}/ui.zip
-          rm -rf ${{ github.workspace }}/app
+      - name: Clean workspace
+        run: rm -rf ${{ github.workspace }}/app
 
       - uses: actions/checkout@v7
 
-      - name: 'Environment variables'
+      - name: Environment variables
         run: |
           grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
           echo -e "\n" >>$GITHUB_ENV
           grep -v '^\s*#' config/${{ github.event.inputs.environment }}.env | grep -v '^\s*$' >>$GITHUB_ENV || true
           echo -e "\n" >>$GITHUB_ENV
 
-      - name: 'Resource group'
+      - name: Resolve names
         run: |
           NUMBER=$(grep number config/global.tfvars | cut -d= -f2 | tr -d ' "')
           LZ=$(grep '^lz ' config/${{ github.event.inputs.environment }}.tfvars | cut -d= -f2 | tr -d ' "')
           echo "RESOURCE_GROUP=rg${NUMBER}-${LZ}" >>$GITHUB_ENV
+          TAG="${{ github.event.inputs.tag }}"
+          echo "IMAGE_TAG=${TAG:-${GITHUB_SHA::7}}" >>$GITHUB_ENV
 
       - name: Azure Login
         uses: azure/login@v3
@@ -52,34 +56,73 @@ jobs:
           tenant-id: ${{ env.ARM_TENANT_ID }}
           subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
 
-      - name: Setup uv
+      - name: Resolve ACR
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          ACR_NAME=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].name" -o tsv)
+          ACR_SERVER=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[0].loginServer" -o tsv)
+          echo "ACR_NAME=${ACR_NAME}" >>$GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=${ACR_SERVER}" >>$GITHUB_ENV
 
-      - name: Package
+      - name: Install Docker
         run: |
-          cd app/ui
-          uv sync --frozen
-          zip -r ../../ui.zip .
+          if ! command -v docker &>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y docker.io
+            sudo systemctl start docker
+          fi
+          sudo chmod 666 /var/run/docker.sock
 
-      - name: Configure App Service
+      - name: ACR login
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push
         run: |
+          docker build \
+            -f app/ui/Dockerfile \
+            -t ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
+            app/ui/
+          docker push ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }}
+          docker tag \
+            ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
+            ${{ env.ACR_LOGIN_SERVER }}/rag-ui:latest
+          docker push ${{ env.ACR_LOGIN_SERVER }}/rag-ui:latest
+
+      - name: Configure container
+        run: |
+          MI_RESOURCE_ID=$(az webapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ github.event.inputs.appservice }} \
+            --query "identity.userAssignedIdentities | keys(@)[0]" -o tsv)
+
+          az webapp config container set \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ github.event.inputs.appservice }} \
+            --docker-custom-image-name ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
+            --docker-registry-server-url https://${{ env.ACR_LOGIN_SERVER }}
+
           az webapp config appsettings set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false
-          az webapp config set \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name ${{ github.event.inputs.appservice }} \
-            --startup-file ".venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000"
-          echo "Waiting 30s for App Service to restart after settings change..."
-          sleep 30
+            --settings WEBSITES_PORT=8000
 
-      - name: Deploy
-        run: |
-          az webapp deploy \
+          az webapp update \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --src-path ui.zip \
-            --type zip
+            --set siteConfig.acrUseManagedIdentityCreds=true \
+                  "siteConfig.acrUserManagedIdentityID=${MI_RESOURCE_ID}"
+
+      - name: Restart
+        run: |
+          az webapp restart \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ github.event.inputs.appservice }}
+
+      - name: Summary
+        run: |
+          echo "### UI deployed :rocket:" >>$GITHUB_STEP_SUMMARY
+          echo "| | |" >>$GITHUB_STEP_SUMMARY
+          echo "|---|---|" >>$GITHUB_STEP_SUMMARY
+          echo "| App Service | \`${{ github.event.inputs.appservice }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }}\` |" >>$GITHUB_STEP_SUMMARY

@@ -31,22 +31,23 @@ resource "azurerm_linux_web_app" "item" {
 
   site_config {
     application_stack {
-      python_version = "3.12"
+      docker_image_name        = "rag-ui:latest"
+      docker_registry_url      = "https://${azurerm_container_registry.main.login_server}"
     }
   }
 
   app_settings = {
-    APIM_ENDPOINT                  = var.apim_gateway_url
-    APIM_API_KEY                   = var.apim_subscription_key
-    SEARCH_ENDPOINT                = "https://${azurerm_search_service.main.name}.search.windows.net"
-    SEARCH_API_KEY                 = azurerm_search_service.main.primary_key
-    OPENAI_DEPLOYMENT              = "gpt-4o"
-    OPENAI_API_VERSION             = "2024-11-01-preview"
-    FOUNDRY_PROJECT_NAME           = azapi_resource.foundry_project.name
-    FOUNDRY_PROJECT_RG             = module.lz_data.rg.name
-    FOUNDRY_PROJECT_ENDPOINT       = "https://${azurerm_cognitive_account.foundry_hub.name}.services.ai.azure.com/api/projects/${azapi_resource.foundry_project.name}"
-    AGENT_NAME                     = "rag-agent"
-    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
+    APIM_ENDPOINT            = var.apim_gateway_url
+    APIM_API_KEY             = var.apim_subscription_key
+    SEARCH_ENDPOINT          = "https://${azurerm_search_service.main.name}.search.windows.net"
+    SEARCH_API_KEY           = azurerm_search_service.main.primary_key
+    OPENAI_DEPLOYMENT        = "gpt-4o"
+    OPENAI_API_VERSION       = "2024-11-01-preview"
+    FOUNDRY_PROJECT_NAME     = azapi_resource.foundry_project.name
+    FOUNDRY_PROJECT_RG       = module.lz_data.rg.name
+    FOUNDRY_PROJECT_ENDPOINT = "https://${azurerm_cognitive_account.foundry_hub.name}.services.ai.azure.com/api/projects/${azapi_resource.foundry_project.name}"
+    AGENT_NAME               = "rag-agent"
+    WEBSITES_PORT            = "8000"
   }
 }
 
