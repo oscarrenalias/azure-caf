@@ -27,8 +27,8 @@ jobs:
     steps:
       - name: 'Clean workspace'
         run: |
-          rm -f ${{ github.workspace }}/app1.zip
-          rm -rf ${{ github.workspace }}/app1
+          rm -f ${{ github.workspace }}/ui.zip
+          rm -rf ${{ github.workspace }}/app
 
       - uses: actions/checkout@v7
 
@@ -54,17 +54,17 @@ jobs:
 
       - name: Package
         run: |
-          cd app1
-          zip -r ../app1.zip .
+          cd app/ui
+          zip -r ../../ui.zip .
 
       - name: Deploy
         run: |
           az webapp config set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --startup-file "gunicorn --bind=0.0.0.0 --timeout 600 app:app"
+            --startup-file "uvicorn main:app --host 0.0.0.0 --port 8000"
           az webapp deploy \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --src-path app1.zip \
+            --src-path ui.zip \
             --type zip
