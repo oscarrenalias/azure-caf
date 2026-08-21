@@ -20,12 +20,9 @@ _TOP_K = 5
 
 @lru_cache(maxsize=1)
 def _openai_client():
-    credential = DefaultAzureCredential(
-        managed_identity_client_id=os.environ.get("FOUNDRY_AGENT_INSTANCE_CLIENT_ID"),
-    )
     project = AIProjectClient(
         endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
-        credential=credential,
+        credential=DefaultAzureCredential(),
     )
     return project.get_openai_client()
 

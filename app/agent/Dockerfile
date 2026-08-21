@@ -1,18 +1,9 @@
-# Build context: app/  (one level up from this file)
-# docker build -f agent/Dockerfile -t rag-agent .
-
-FROM python:3.12-slim
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
+FROM mcr.microsoft.com/azurelinux/base/python:3.12
 WORKDIR /app
-
-# Install only agent dependencies (cached before source copy)
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra agent
-
-COPY agent/ ./agent/
-
+COPY . user_agent/
+WORKDIR /app/user_agent
+RUN pip install --upgrade --ignore-installed pip && \
+    pip install -r requirements.txt
 EXPOSE 8088
-
-CMD ["uv", "run", "python", "agent/main.py"]
+RUN PYTHONDONTWRITEBYTECODE= python3 -m compileall -q . || true
+CMD ["python3", "main.py"]

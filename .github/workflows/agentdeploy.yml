@@ -78,7 +78,7 @@ jobs:
           docker build \
             -f app/agent/Dockerfile \
             -t ${{ env.ACR_LOGIN_SERVER }}/rag-agent:${{ env.IMAGE_TAG }} \
-            app/
+            app/agent/
 
       - name: Push
         run: |
@@ -202,9 +202,6 @@ jobs:
           python3 - <<'PYEOF'
           import os, textwrap
           project = os.environ["FOUNDRY_PROJECT_NAME"]
-          # azd azure.ai.agent always rebuilds from the project dir; docker.image is ignored.
-          # context: ../ → relative to app/agent/, resolves to app/ (where pyproject.toml lives)
-          # path: ./Dockerfile → relative to project dir (app/agent/Dockerfile)
           content = textwrap.dedent(f"""\
             name: rag-app
             services:
@@ -214,17 +211,25 @@ jobs:
                 project: agent
                 language: python
                 kind: hosted
+                codeConfiguration:
+                  runtime: python_3_12
+                  entryPoint: main.py
                 uses:
                   - {project}
-                docker:
-                  context: ../
-                  path: ./Dockerfile
-                  remoteBuild: false
                 protocols:
                   - protocol: responses
                     version: 2.0.0
+                environmentVariables:
+                  - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+                    value: apim-gateway/gpt-4o
+                container:
+                  resources:
+                    cpu: '0.5'
+                    memory: 1Gi
               {project}:
                 host: azure.ai.project
+            infra:
+              provider: microsoft.foundry
           """)
           with open("azure.yaml", "w") as f:
               f.write(content)
