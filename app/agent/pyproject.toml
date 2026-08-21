@@ -3,8 +3,8 @@ name = "rag-agent"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "azure-ai-agentserver-core==2.1.0b1",
-    "azure-ai-agentserver-responses==2.0.0b0",
+    "azure-ai-agentserver-core==2.1.0b2",
+    "azure-ai-agentserver-responses==2.1.0b2",
     "azure-ai-projects>=2.4.0",
     "azure-identity>=1.25.0",
     "langchain-azure-ai>=1.2.8",

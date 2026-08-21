@@ -11,8 +11,13 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   kind                          = "AIServices"
   sku_name                      = "S0"
   custom_subdomain_name         = "hub${random_id.foundry.hex}"
-  public_network_access_enabled = false
+  public_network_access_enabled = true
   project_management_enabled    = true
+
+  network_acls {
+    default_action = "Deny"
+    ip_rules       = var.allowed_ips
+  }
 
   identity {
     type = "SystemAssigned"

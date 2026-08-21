@@ -9,7 +9,6 @@ from azure.ai.agentserver.responses import (
     ResponsesAgentServerHost,
     ResponsesServerOptions,
     TextResponse,
-    get_input_expanded,
 )
 from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
@@ -36,21 +35,7 @@ async def handle_response(
     context: ResponseContext,
     cancellation_signal,
 ) -> TextResponse:
-    items = get_input_expanded(request)
-    user_text = ""
-    for item in reversed(items):
-        if isinstance(item, dict) and item.get("role") == "user":
-            content = item.get("content", [])
-            if isinstance(content, list):
-                user_text = " ".join(
-                    c.get("text", "")
-                    for c in content
-                    if isinstance(c, dict) and c.get("type") == "input_text"
-                )
-            elif isinstance(content, str):
-                user_text = content
-            break
-
+    user_text = await context.get_input_text()
     result = await _agent.ainvoke({"messages": [("user", user_text)]})
     final_text = result["messages"][-1].content
     return TextResponse(context, request, text=final_text)

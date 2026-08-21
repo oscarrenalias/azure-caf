@@ -17,6 +17,12 @@ variable "apim_subscription_key" {
   default   = ""
 }
 
+variable "allowed_ips" {
+  type        = list(string)
+  description = "IP addresses allowed public access to AI Services endpoints (e.g. developer workstations)"
+  default     = []
+}
+
 module "lz_data" {
   source = "../modules/lz-data"
   number = var.number
