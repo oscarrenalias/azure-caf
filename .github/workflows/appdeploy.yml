@@ -91,27 +91,23 @@ jobs:
 
       - name: Configure container
         run: |
-          MI_RESOURCE_ID=$(az webapp show \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name ${{ github.event.inputs.appservice }} \
-            --query "identity.userAssignedIdentities | keys(@)[0]" -o tsv)
+          ACR_USER=$(az acr credential show --name ${{ env.ACR_NAME }} \
+            --query "username" -o tsv)
+          ACR_PASS=$(az acr credential show --name ${{ env.ACR_NAME }} \
+            --query "passwords[0].value" -o tsv)
 
           az webapp config container set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
-            --docker-custom-image-name ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
-            --docker-registry-server-url https://${{ env.ACR_LOGIN_SERVER }}
+            --container-image-name ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
+            --container-registry-url https://${{ env.ACR_LOGIN_SERVER }} \
+            --container-registry-user "${ACR_USER}" \
+            --container-registry-password "${ACR_PASS}"
 
           az webapp config appsettings set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
             --settings WEBSITES_PORT=8000
-
-          az webapp update \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name ${{ github.event.inputs.appservice }} \
-            --set siteConfig.acrUseManagedIdentityCreds=true \
-                  "siteConfig.acrUserManagedIdentityID=${MI_RESOURCE_ID}"
 
       - name: Restart
         run: |
