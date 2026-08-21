@@ -186,6 +186,34 @@ so with Internal mode the gateway is unreachable and every model call fails.
    8088 and 8087 forwarded — which is what Microsoft's own guidance prescribes for a
    VNet-only Foundry endpoint.
 
+### Hosted agent (`app/`)
+
+Dependencies are managed with **uv only** — `pyproject.toml` + `uv.lock`. There is no
+`requirements.txt` and none should be added: `azure.yaml` sets
+`codeConfiguration.dependencyResolution: remote_build`, and the Foundry remote build
+resolves from the uv lock, the same as the
+[uv-pyproject hosted agent sample](https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents/bring-your-own/responses/uv-pyproject).
+A stale `requirements.txt` is worse than none at all: it silently wins over
+`pyproject.toml` in the remote build, which is how the hosted agent once ended up
+running a mismatched `azure-ai-agentserver` pair that `pyproject.toml` had fixed.
+
+`.azdignore` matters for the same reason — without it the local `.venv` (macOS
+binaries, ~145 MB) and `__pycache__` get uploaded into a Linux build.
+
+`app/azure.yaml` is authoritative for the agent definition. `agentdeploy.yml` patches
+in only the Foundry project name, which can't live in the file because it carries a
+`random_id` suffix and appears as a service key rather than a value.
+
+Two identities are involved and they are easy to confuse:
+
+- The **App Service** user-assigned identity calls the agent endpoint. Managed in
+  `infra/lz01/roles.tf`, needs `Foundry Project Manager`.
+- The **agent's own** identity (`<account>-<project>-<agent>-AgentIdentity`) is created
+  by the platform on first deploy and starts with no role assignments, so the
+  container cannot call the project data plane for its model calls. Terraform can't own
+  a principal that doesn't exist until deploy time, so `agentdeploy.yml` grants it
+  after `azd deploy`. It is stable across agent versions.
+
 ### Developer access for local `azd` runs
 
 `azd ai agent run` / `invoke --local` runs the agent process on the workstation but

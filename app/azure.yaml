@@ -7,11 +7,15 @@ services:
     language: python
     kind: hosted
     startupCommand: "uv run python main.py"
+    # remote_build resolves dependencies from pyproject.toml + uv.lock — uv only,
+    # no requirements.txt. Mirrors the uv-pyproject hosted agent sample:
+    # foundry-samples/samples/python/hosted-agents/bring-your-own/responses/uv-pyproject
+    # The Dockerfile is kept for running the agent as a container locally; the
+    # platform does not use it in this mode, so it is not referenced here.
     codeConfiguration:
       runtime: python_3_13
       entryPoint: main.py
-    docker:
-      path: ./Dockerfile
+      dependencyResolution: remote_build
     protocols:
       - protocol: responses
         version: 2.0.0

@@ -196,52 +196,79 @@ jobs:
           azd env set FOUNDRY_PROJECT_ENDPOINT "https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}"
           azd env set AZURE_LOCATION "swedencentral"
 
-      - name: Generate azure.yaml
+          # Values referenced by the env: block in app/azure.yaml. Without these,
+          # ${...} substitution resolves to empty at deploy time.
+          azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "apim-gateway/gpt-4o"
+          azd env set AZURE_AI_EMBEDDING_DEPLOYMENT_NAME "apim-gateway/text-embedding-3-small"
+
+          SEARCH_NAME=$(az search service list --resource-group ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          azd env set SEARCH_ENDPOINT "https://${SEARCH_NAME}.search.windows.net"
+          azd env set SEARCH_INDEX_NAME "knowledge-base"
+          azd env set SEARCH_API_KEY "$(az search admin-key show --service-name ${SEARCH_NAME} --resource-group ${{ env.RESOURCE_GROUP }} --query primaryKey -o tsv)"
+
+      - name: Install yq
+        run: |
+          if ! command -v yq &>/dev/null; then
+            sudo curl -fsSLo /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/download/v4.47.2/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+
+      # app/azure.yaml is the single source of truth for the agent definition:
+      # dependency resolution, environment, protocols, container resources.
+      # The one thing it cannot express is the Foundry project name — it carries a
+      # random_id suffix (see infra/lz01/foundry.tf) and appears as a service *key*,
+      # not a value, so ${...} substitution can't cover it. Patch it in rather than
+      # regenerating the file, so changes to azure.yaml actually reach deployments.
+      - name: Bind agent to the Foundry project
         working-directory: app
         run: |
-          python3 - <<'PYEOF'
-          import os, textwrap
-          project = os.environ["FOUNDRY_PROJECT_NAME"]
-          content = textwrap.dedent(f"""\
-            name: rag-app
-            services:
-              rag-agent:
-                name: rag-agent
-                host: azure.ai.agent
-                project: agent
-                language: python
-                kind: hosted
-                codeConfiguration:
-                  runtime: python_3_13
-                  entryPoint: main.py
-                docker:
-                  path: ./Dockerfile
-                uses:
-                  - {project}
-                protocols:
-                  - protocol: responses
-                    version: 2.0.0
-                environmentVariables:
-                  - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
-                    value: apim-gateway/gpt-4o
-                container:
-                  resources:
-                    cpu: '0.5'
-                    memory: 1Gi
-              {project}:
-                host: azure.ai.project
-            infra:
-              provider: microsoft.foundry
-          """)
-          with open("azure.yaml", "w") as f:
-              f.write(content)
-          print("=== Generated azure.yaml ===")
-          print(content)
-          PYEOF
+          yq -i '
+            .services["rag-agent"].uses = [strenv(FOUNDRY_PROJECT_NAME)] |
+            .services[strenv(FOUNDRY_PROJECT_NAME)].host = "azure.ai.project"
+          ' azure.yaml
+          echo "=== azure.yaml used for this deploy ==="
+          cat azure.yaml
 
       - name: Deploy agent
         working-directory: app
         run: azd deploy
+
+      # The platform creates a managed identity for the agent on first deploy
+      # ("<account>-<project>-<agent>-AgentIdentity"), and it starts with no role
+      # assignments — so the container cannot call the project data plane it needs
+      # for connected-mode model calls. Terraform can't own this: the principal
+      # doesn't exist until the agent is deployed. The principal id is read from the
+      # agent definition rather than Entra ID, so no Graph permissions are needed.
+      - name: Grant the agent identity access to the project
+        run: |
+          TOKEN=$(az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv)
+          curl -fsS \
+            "${FOUNDRY_PROJECT_ENDPOINT}/agents/rag-agent?api-version=2025-11-15-preview" \
+            -H "Authorization: Bearer $TOKEN" -o /tmp/agent.json
+          PRINCIPAL=$(python3 -c "import json;print((json.load(open('/tmp/agent.json'))['versions']['latest'].get('instance_identity') or {}).get('principal_id',''))")
+
+          if [ -z "$PRINCIPAL" ]; then
+            echo "::error::could not read the agent's instance identity principal id"
+            exit 1
+          fi
+          echo "Agent identity principal: $PRINCIPAL"
+
+          SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_HUB_NAME}"
+          if az role assignment list --assignee "$PRINCIPAL" --scope "$SCOPE" \
+               --query "[?roleDefinitionName=='Foundry Project Manager'] | length(@)" -o tsv | grep -qv '^0$'; then
+            echo "Role assignment already present."
+          else
+            az role assignment create \
+              --assignee-object-id "$PRINCIPAL" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Foundry Project Manager" \
+              --scope "$SCOPE" \
+              --only-show-errors -o none
+            echo "Granted Foundry Project Manager to the agent identity."
+          fi
+        env:
+          FOUNDRY_PROJECT_ENDPOINT: https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}
 
       - name: Show agent status on failure
         if: failure()
