@@ -117,14 +117,88 @@ curl https://<app-service-name>.azurewebsites.net/
 # Expected: Hello World
 ```
 
-## AI Foundry (Azure AI Services)
+## AI Foundry and the AI Gateway
 
-Defined in `infra/lz01/aifoundry.tf`. Deployed as an `AIServices` Cognitive Account with:
-- Public access disabled, reachable only via private endpoint in the `private-endpoint` subnet
-- Private DNS zones for both `cognitiveservices` and `openai` sub-resources
-- A `gpt-5.6-sol` model deployment on `DataZoneStandard` SKU
+Models are a **shared platform resource**, not a workload resource:
 
-The `ai-agents` subnet (10.1.4.0/24) is reserved for Container Apps environments that will host agentic workloads.
+```
+lz-platform                                   lz01 (workload)
+  AI Foundry `aif<hex>`  ◄── private ────  APIM `apim<hex>`        Foundry hub `hub<hex>`
+    gpt-4o                  endpoint         (AI Gateway)            └── project `proj<hex>`
+    text-embedding-3-small                         ▲                       └── connection `apim-gateway`
+    public access disabled                         └──── connected mode ───┘
+```
+
+- `infra/lz-platform/aifoundry.tf` — the shared Foundry account holding the model
+  deployments. Public access disabled; reachable only via its private endpoint.
+- `infra/lz-platform/apim.tf` — APIM as the AI Gateway in front of it. Swaps the
+  consumer subscription key for an APIM managed-identity token, enforces a
+  per-subscription token limit, and reaches the Foundry backend privately.
+- `infra/lz01/foundry.tf` — the workload Foundry account and project that host the
+  Agent Service, plus the `apim-gateway` connection. Agents reference models as
+  `apim-gateway/<deployment>` (e.g. `apim-gateway/gpt-4o`).
+
+The `ai-agents` subnet (10.1.4.0/24) is reserved for agent compute.
+
+### The `apim-gateway` connection
+
+An APIM gateway is a *ModelGateway* connection, which is a different object from a
+connection to a Cognitive Services account. It needs:
+
+- `category = "ApiManagement"` (not `AzureOpenAI`)
+- `metadata.deploymentInPath` — `"true"` here, since the gateway passes through the
+  Azure OpenAI URL shape `<target>/deployments/<deployment>/chat/completions`
+- `metadata.models` — a JSON-string static list of the deployments the gateway
+  exposes, which must be kept in sync with `infra/lz-platform/aifoundry.tf`. The
+  alternative is `metadata.modelDiscovery`, which requires `/deployments` operations
+  on the APIM API backed by ARM.
+
+Get any of these wrong and model resolution fails with `Connection 'apim-gateway'
+not found` — the name resolves fine over the management API, so the error is
+misleading. Schema:
+[foundry-samples 01-connections/apim](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/01-connections/apim).
+
+### AI Gateway network posture
+
+APIM runs in **External** VNet mode. Inbound is public (subscription key + api
+policy); outbound stays in the VNet, so the platform Foundry account is only ever
+reached over its private endpoint.
+
+External rather than Internal because the Foundry inference service must reach the
+gateway for connected-mode model calls. Internal mode publishes no public DNS record
+for `<name>.azure-api.net`, and the workload Foundry account is Microsoft-managed
+multi-tenant compute (`networkInjections: null`) whose egress is not in this VNet —
+so with Internal mode the gateway is unreachable and every model call fails.
+
+**Target state (follow-on work): end-to-end private gateway.** Mirrors Microsoft's
+[template 16](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/16-private-network-standard-agent-apim-setup):
+
+1. Recreate the lz01 Foundry account with **VNet injection** into a /24 delegated to
+   `Microsoft.App/environments` (the `ai-agents` subnet). Network injection cannot be
+   added to an existing account — the account must be rebuilt, and deleted/purged
+   with its capability hosts first or the subnet stays locked.
+2. Add the BYO resources standard agent setup requires — Storage, Cosmos DB, AI
+   Search — plus account and project capability hosts.
+3. Migrate APIM from classic `Developer_1` to `StandardV2` with outbound VNet
+   integration and an inbound private endpoint (`privatelink.azure-api.net`).
+   Classic tiers cannot have an inbound private endpoint while VNet-injected.
+4. Local development then has to run inside the VNet — on the hub jump VM with ports
+   8088 and 8087 forwarded — which is what Microsoft's own guidance prescribes for a
+   VNet-only Foundry endpoint.
+
+### Developer access for local `azd` runs
+
+`azd ai agent run` / `invoke --local` runs the agent process on the workstation but
+still calls the Foundry data plane, so `config/lz01.tfvars` carries `allowed_ips`,
+an IP allowlist applied to the workload Foundry account (`foundry.tf`) and to AI
+Search (`search.tf`). Update it when your public IP changes.
+
+Note that a Cognitive Services account can serve stale network config: after
+flipping `publicNetworkAccess` or the ACL, the data plane may keep answering
+`403 Public access is disabled. Please configure private endpoint.` (look for
+`policy-id: ThrowExceptionDueToTrafficDenied` on the response) even though ARM
+reports the new values. Toggling `publicNetworkAccess` Disabled → Enabled forces the
+data plane to pick them up.
 
 ## Adding a new landing zone
 

@@ -7,12 +7,18 @@ data "azurerm_private_dns_zone" "search" {
   resource_group_name = "rg${var.number}-${var.hub}"
 }
 
+# Public access is enabled only to carry the developer IP allowlist, same pattern
+# as the Foundry hub in foundry.tf: the RAG tool in app/agent runs on the developer
+# workstation during `azd ai agent run`, and the private endpoint below is not
+# reachable from there. With allowed_ips empty this is a deny-all — no public
+# reachability — and in-VNet traffic always uses the private endpoint.
 resource "azurerm_search_service" "main" {
   name                          = "srch${random_id.search.hex}"
   location                      = module.lz_data.rg.location
   resource_group_name           = module.lz_data.rg.name
   sku                           = "basic"
-  public_network_access_enabled = false
+  public_network_access_enabled = true
+  allowed_ips                   = var.allowed_ips
   local_authentication_enabled  = true
 
   identity {

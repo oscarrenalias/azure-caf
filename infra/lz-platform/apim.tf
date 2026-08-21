@@ -2,16 +2,20 @@ resource "random_id" "apim" {
   byte_length = 4
 }
 
+# The `-ext` suffix is a migration artifact: Azure refuses to change an existing
+# instance's VNet type while keeping the same public IP (it stands up a parallel
+# deployment to avoid downtime, so the IP must be free), which forced a new IP when
+# this instance moved Internal -> External. Greenfield deploys just create this one.
 resource "azurerm_public_ip" "apim" {
-  name                = "pip-apim${random_id.apim.hex}"
+  name                = "pip-apim${random_id.apim.hex}-ext"
   location            = module.lz_data.rg.location
   resource_group_name = module.lz_data.rg.name
   allocation_method   = "Static"
   sku                 = "Standard"
-  domain_name_label   = "apim${random_id.apim.hex}"
+  domain_name_label   = "apim${random_id.apim.hex}-ext"
 }
 
-# APIM internal VNet mode requires these specific NSG rules on its subnet.
+# APIM VNet mode (External) requires these specific NSG rules on its subnet.
 # Outbound uses NSG defaults (allow internet) since route=false keeps traffic off the firewall.
 resource "azurerm_network_security_group" "apim" {
   name                = "nsg-apim"
@@ -53,6 +57,25 @@ resource "azurerm_network_security_group" "apim" {
     source_address_prefix      = "VirtualNetwork"
     destination_address_prefix = "VirtualNetwork"
   }
+
+  # External VNet mode: the gateway also serves clients that reach it over the
+  # public hostname. Required so the AI Foundry inference service in a workload LZ
+  # can resolve and call the gateway for connected-mode model calls — Foundry runs
+  # on Microsoft-managed compute whose egress is not in this VNet, and its egress
+  # IPs aren't published, so this can't be narrowed to a source prefix.
+  # Access control is the APIM subscription key plus the api policy, not the network.
+  # See "AI Gateway network posture" in CLAUDE.md for the private target state.
+  security_rule {
+    name                       = "apim-gateway-inbound-internet"
+    priority                   = 130
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "VirtualNetwork"
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "apim" {
@@ -60,7 +83,15 @@ resource "azurerm_subnet_network_security_group_association" "apim" {
   network_security_group_id = azurerm_network_security_group.apim.id
 }
 
-# Developer_1 SKU, internal VNet mode. Expect 30-45 minutes to provision.
+# Developer_1 SKU, External VNet mode. Expect 30-45 minutes to provision, and a
+# similar wait when the VNet type changes.
+#
+# External (not Internal) because the gateway must be reachable by the AI Foundry
+# inference service in the workload LZs: Internal mode publishes no public DNS
+# record for <name>.azure-api.net, and Foundry's connected-mode model calls
+# originate from Microsoft-managed compute outside this VNet. Backend traffic is
+# unaffected — APIM stays VNet-injected and reaches the AI Foundry account below
+# over its private endpoint.
 resource "azurerm_api_management" "main" {
   name                = "apim${random_id.apim.hex}"
   location            = module.lz_data.rg.location
@@ -69,7 +100,7 @@ resource "azurerm_api_management" "main" {
   publisher_email     = var.apim_publisher_email
   sku_name            = "Developer_1"
 
-  virtual_network_type = "Internal"
+  virtual_network_type = "External"
 
   virtual_network_configuration {
     subnet_id = azurerm_subnet.item["apim"].id
@@ -190,20 +221,11 @@ resource "azurerm_api_management_product_api" "ai_platform_openai" {
   resource_group_name = module.lz_data.rg.name
 }
 
-# Private DNS A record: resolves <apim-name>.azure-api.net to APIM's private IP
-# from any VNet linked to the hub's azure-api.net zone.
-data "azurerm_private_dns_zone" "apim" {
-  name                = "azure-api.net"
-  resource_group_name = "rg${var.number}-${var.hub}"
-}
-
-resource "azurerm_private_dns_a_record" "apim_gateway" {
-  name                = azurerm_api_management.main.name
-  zone_name           = data.azurerm_private_dns_zone.apim.name
-  resource_group_name = data.azurerm_private_dns_zone.apim.resource_group_name
-  ttl                 = 300
-  records             = [azurerm_api_management.main.private_ip_addresses[0]]
-}
+# No private DNS record for the gateway: in External VNet mode APIM reports no
+# private IP (privateIPAddresses is null — the internal load balancer only exists in
+# Internal mode), so <apim-name>.azure-api.net resolves publicly everywhere,
+# including from inside the VNets. In-VNet clients reach it through the hub firewall,
+# which already allows any -> any on 443.
 
 resource "azurerm_api_management_subscription" "ai_platform_default" {
   api_management_name = azurerm_api_management.main.name

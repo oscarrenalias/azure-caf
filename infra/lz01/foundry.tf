@@ -62,26 +62,62 @@ resource "azapi_resource" "foundry_project" {
   }
 }
 
-# APIM gateway connection on the Hub — shared to all projects.
+# APIM AI Gateway connection on the project — the "connected mode" link that lets
+# agents here consume the shared models in the platform LZ.
+#
+# Foundry treats an APIM gateway as a ModelGateway connection, which is a different
+# shape from an "AzureOpenAI" connection to a Cognitive Services account:
+#   - category must be "ApiManagement"
+#   - metadata must declare how the gateway routes (deploymentInPath) and which
+#     models it exposes (static "models" list, or modelDiscovery endpoints)
+# With the wrong category or without model info, the Responses API cannot resolve
+# "apim-gateway/<deployment>" and fails with "Connection 'apim-gateway' not found".
+# Schema: foundry-samples/infrastructure/infrastructure-setup-bicep/01-connections/apim
+#
 # Model reference in agent code: "apim-gateway/gpt-4o"
 resource "azapi_resource" "apim_connection" {
-  type      = "Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview"
+  type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
   name      = "apim-gateway"
-  parent_id = azurerm_cognitive_account.foundry_hub.id
-
-  depends_on = [azapi_update_resource.foundry_hub_enable_projects]
+  parent_id = azapi_resource.foundry_project.id
 
   body = {
     properties = {
-      category      = "AzureOpenAI"
+      category      = "ApiManagement"
       target        = var.apim_gateway_url
       authType      = "ApiKey"
       credentials   = { key = var.apim_subscription_key }
       isSharedToAll = true
       metadata = {
-        ApiType    = "Azure"
-        ApiVersion = "2024-11-01-preview"
-        Kind       = "AzureOpenAI"
+        # The gateway is a passthrough, so inference URLs keep the Azure OpenAI
+        # shape: <target>/deployments/<deployment>/chat/completions
+        deploymentInPath    = "true"
+        inferenceAPIVersion = "2024-10-21"
+
+        # Static model list — mirrors the deployments on the platform LZ Foundry
+        # (infra/lz-platform/aifoundry.tf). Static discovery avoids having to add
+        # ARM-backed /deployments operations to the APIM API. Must be a JSON string.
+        models = jsonencode([
+          {
+            name = "gpt-4o"
+            properties = {
+              model = {
+                name    = "gpt-4o"
+                version = "2024-11-20"
+                format  = "OpenAI"
+              }
+            }
+          },
+          {
+            name = "text-embedding-3-small"
+            properties = {
+              model = {
+                name    = "text-embedding-3-small"
+                version = "1"
+                format  = "OpenAI"
+              }
+            }
+          },
+        ])
       }
     }
   }

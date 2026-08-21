@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from typing import Annotated
@@ -13,8 +14,12 @@ from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from langchain_core.tools import tool
 
+logger = logging.getLogger("rag-agent.tools")
+
 _INDEX_NAME = "knowledge-base"
-_EMBEDDING_MODEL = "apim-gateway/text-embedding-3-small"
+_EMBEDDING_MODEL = os.environ.get(
+    "AZURE_AI_EMBEDDING_DEPLOYMENT_NAME", "apim-gateway/text-embedding-3-small"
+)
 _TOP_K = 5
 
 
@@ -68,4 +73,7 @@ def search_knowledge_base(
         ]
         return "\n\n---\n\n".join(chunks) if chunks else "No relevant documents found."
     except Exception as exc:
-        return f"Search error: {exc}"
+        # Returned as text so the agent can keep going, but log it too: a network
+        # or auth failure here otherwise looks identical to "no documents found".
+        logger.exception("Knowledge base search failed for query %r", query)
+        return f"Search error: {type(exc).__name__}: {exc}"

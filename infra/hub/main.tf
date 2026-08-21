@@ -74,7 +74,11 @@ variable "dnszones" {
     { name = "privatelink.cognitiveservices.azure.com" },
     { name = "privatelink.openai.azure.com" },
     { name = "privatelink.services.ai.azure.com" },
-    { name = "azure-api.net" },
+    # No "azure-api.net" zone: APIM runs in External VNet mode and exposes no
+    # private IP, so there is nothing to point a private record at. A linked zone
+    # for that suffix would be authoritative inside the VNets and would shadow the
+    # gateway's public name instead of resolving it. When APIM moves to Standard v2
+    # with an inbound private endpoint, the zone to add is privatelink.azure-api.net.
     { name = "privatelink.search.windows.net" },
     { name = "privatelink.api.azureml.ms" },
     { name = "privatelink.azurecr.io" },
