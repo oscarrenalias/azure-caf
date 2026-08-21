@@ -14,8 +14,17 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   public_network_access_enabled = true
   project_management_enabled    = true
 
+  # Deny by default, with two exceptions:
+  #  - allowed_ips: developer workstations, for local `azd ai agent run`
+  #  - bypass AzureServices: required by the Agent Service platform itself. A hosted
+  #    agent's request is orchestrated platform-side (FoundryStorageProvider writes
+  #    the response before the container is invoked) from Microsoft-managed compute
+  #    outside this VNet, so without the bypass every hosted invocation fails with a
+  #    500 that never reaches the container. Verified: with the bypass a hosted
+  #    invoke completes; without it, the container logs show no inbound request.
   network_acls {
     default_action = "Deny"
+    bypass         = "AzureServices"
     ip_rules       = var.allowed_ips
   }
 
