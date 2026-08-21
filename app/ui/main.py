@@ -1,13 +1,26 @@
 """FastAPI chat UI that talks to the hosted LangGraph RAG agent via Responses API."""
 from __future__ import annotations
 
+import logging
 import os
+import sys
 
 import httpx
 from azure.identity import DefaultAzureCredential
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("rag-ui")
+
+# Quieten noisy SDK loggers but keep them at WARNING so their errors still surface
+for noisy in ("azure", "httpx", "httpcore", "urllib3"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -19,11 +32,17 @@ _AGENT_URL = (
     "/endpoint/protocols/openai/responses?api-version=v1"
 )
 
+logger.info("Agent URL: %s", _AGENT_URL)
+logger.info("AZURE_CLIENT_ID: %s", os.environ.get("AZURE_CLIENT_ID", "(not set)"))
+
 _credential = DefaultAzureCredential()
 
 
 def _token() -> str:
-    return _credential.get_token("https://cognitiveservices.azure.com/.default").token
+    logger.debug("Acquiring token for cognitiveservices scope")
+    tok = _credential.get_token("https://cognitiveservices.azure.com/.default")
+    logger.debug("Token acquired, expires at %s", tok.expires_on)
+    return tok.token
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -44,6 +63,8 @@ async def chat(request: Request):
     if previous_response_id:
         payload["previous_response_id"] = previous_response_id
 
+    logger.info("POST %s  previous_id=%s", _AGENT_URL, previous_response_id)
+
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
@@ -54,17 +75,24 @@ async def chat(request: Request):
                     "Content-Type": "application/json",
                 },
             )
+            logger.info("Agent response: HTTP %s", resp.status_code)
             resp.raise_for_status()
             result = resp.json()
     except httpx.HTTPStatusError as exc:
+        body_text = exc.response.text
+        logger.error(
+            "Agent HTTP error %s: %s", exc.response.status_code, body_text
+        )
         return JSONResponse(
-            {"error": f"Agent returned {exc.response.status_code}: {exc.response.text}"},
+            {"error": f"Agent returned {exc.response.status_code}: {body_text}"},
             status_code=502,
         )
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=502)
+    except Exception:
+        logger.exception("Unexpected error calling agent")
+        raise
 
     text = _extract_text(result)
+    logger.info("Agent reply: %d chars", len(text))
     return JSONResponse({"response": text, "response_id": result.get("id")})
 
 
