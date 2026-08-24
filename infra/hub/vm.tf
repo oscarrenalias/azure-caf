@@ -80,8 +80,13 @@ resource "azurerm_network_security_group" "rule1" {
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_ranges    = ["22", "3389"]
-    source_address_prefix      = "170.252.125.30/32"
+    destination_port_ranges = ["22", "3389"]
+
+    # Developer workstation. This matters more than it used to: since the Foundry
+    # account went private-endpoint only, the jump host is the only place
+    # `azd ai agent run` works, so a stale value here blocks local development
+    # entirely. Update it when your public IP changes.
+    source_address_prefix = "185.57.5.91/32"
     destination_address_prefix = "*"
   }
 
