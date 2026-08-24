@@ -43,6 +43,13 @@ resource "azurerm_linux_web_app" "item" {
 
     ip_restriction_default_action = "Deny"
 
+    # Pull the image with the app's own identity, which holds AcrPull (roles.tf).
+    # ACR has admin_enabled = false, so the DOCKER_REGISTRY_SERVER_USERNAME/PASSWORD
+    # credentials the site was configured with cannot authenticate — the site had been
+    # failing to start with ImagePullUnauthorizedFailure.
+    container_registry_use_managed_identity       = true
+    container_registry_managed_identity_client_id = azurerm_user_assigned_identity.appservice.client_id
+
     # Developer workstations, so the UI can be opened in a browser.
     dynamic "ip_restriction" {
       for_each = var.allowed_ips
