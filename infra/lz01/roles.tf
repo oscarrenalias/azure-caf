@@ -38,7 +38,7 @@ resource "azurerm_role_assignment" "jump_vm_foundry_manager" {
 # shared_access_key_enabled = false, so the indexer's data source authenticates as this
 # identity rather than with a key.
 resource "azurerm_role_assignment" "search_storage_reader" {
-  scope                = azurerm_storage_account.content.id
+  scope                = azapi_resource.content.id
   role_definition_name = "Storage Blob Data Reader"
   principal_id         = azurerm_search_service.main.identity[0].principal_id
 }

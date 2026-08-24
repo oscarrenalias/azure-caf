@@ -54,7 +54,7 @@ resource "azurerm_search_shared_private_link_service" "storage" {
   name               = "spl-blob"
   search_service_id  = azurerm_search_service.main.id
   subresource_name   = "blob"
-  target_resource_id = azurerm_storage_account.content.id
+  target_resource_id = azapi_resource.content.id
   request_message    = "AI Search indexer reading book content"
 }
 
