@@ -38,11 +38,12 @@ resource "azurerm_cognitive_account" "foundry_hub" {
     subnet_id = azurerm_subnet.item["ai-agents"].id
   }
 
-  # Still Allow while the injected account is brought up, so that a failure during the
-  # rebuild is attributable to injection rather than to the ACL. Tightened to Deny and
-  # then to private-endpoint-only inbound once the hosted agent is verified working.
+  # Deny is safe now that agents run inside the VNet: the platform reaches the account
+  # over the private endpoint below, and private endpoint traffic is not evaluated
+  # against these rules. Under public egress this same setting broke every hosted
+  # invocation with a 500 that never reached the container.
   network_acls {
-    default_action = "Allow"
+    default_action = "Deny"
     ip_rules       = var.allowed_ips
   }
 
