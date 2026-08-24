@@ -1,18 +1,26 @@
 ---
-description: Destroy Azure resources in the correct reverse order — landing zones first, then hub. Prevents orphaned private endpoints and DNS records. Always confirms with the user before triggering destructive workflows.
+description: Destroy Azure resources in the correct reverse order — workload landing zones, then lz-platform, then hub — and purge the soft-deleted Foundry and APIM instances. Always confirms with the user before triggering destructive workflows.
 allowed-tools: [Bash, Read]
 ---
 
-You are helping the user tear down Azure infrastructure deployed by this repo. Order matters: landing zones must be destroyed before hub because they hold resources (private endpoints, App Services) that reference hub-managed resources (DNS zones, route tables, VNets).
+You are helping the user tear down Azure infrastructure deployed by this repo. Order matters in two ways: landing zones must go before the hub, because they hold private endpoints and App Services that reference hub-managed DNS zones, route tables and VNets; and workload landing zones must go before `lz-platform`, because their Foundry connections point at its APIM gateway.
+
+Destroy order: **workload LZs (lz01, lz02, …) → lz-platform → hub.**
 
 **Always confirm with the user before triggering any destroy workflow. This is irreversible.**
 
 ## Step 1 — Determine scope
 
 Ask the user what they want to destroy:
-- A single landing zone (e.g. lz01 only)
-- All landing zones, then hub (full teardown)
+- A single workload landing zone (e.g. lz01 only)
+- Everything: workload LZs, then lz-platform, then hub
+- lz-platform only (breaks every workload LZ's model access — confirm that is intended)
 - Hub only (only safe if all landing zones are already destroyed)
+
+Tearing down `lz-platform` is more disruptive than it looks: APIM takes 30-45 minutes to
+re-provision, and its name and subscription key change on re-create, so every
+`config/lz<n>.tfvars` `apim_gateway_url` and the `APIM_SUBSCRIPTION_KEY_LZ<n>` repo
+secret must be updated afterwards.
 
 ## Step 2 — List deployed resources before proceeding
 
@@ -49,6 +57,20 @@ Verify the resource group is empty after the workflow:
 az resource list --resource-group rg<number>-<lzname> -o table
 ```
 
+## Step 3b — Destroy lz-platform
+
+Only after every workload landing zone is destroyed.
+
+**Confirm with user before running.**
+
+```bash
+gh workflow run terraform.yml \
+  -f environment=lz-platform \
+  -f action=destroy \
+  -f runner=ubuntu-latest
+gh run watch
+```
+
 ## Step 4 — Destroy hub
 
 Only proceed after all landing zones are confirmed destroyed.
@@ -67,7 +89,32 @@ gh run watch
 
 This destroys all VNets, peerings, firewall, route table, DNS zones, and the jump VM. The resource groups created by hub (`rg<number>-hub`, `rg<number>-lz01`, `rg<number>-lz02`) will be removed.
 
-## Step 5 — Manual cleanup (if full teardown)
+## Step 5 — Purge soft-deleted services
+
+Two resource types here are soft-deleted rather than removed, and both keep consuming
+their name and quota until purged. This bites on the next deploy, not on the destroy,
+so it is easy to miss.
+
+**Cognitive Services / AI Foundry accounts** (`hub<hex>` in a workload LZ, `aif<hex>`
+in lz-platform) are recoverable for 48 hours:
+
+```bash
+az cognitiveservices account list-deleted --query "[].{name:name,location:location}" -o table
+az cognitiveservices account purge --name <name> --location <location> --resource-group <rg>
+```
+
+**API Management** is soft-deleted for 48 hours and holds its name:
+
+```bash
+az apim deletedservice list --query "[].{name:name,location:location}" -o table
+az apim deletedservice purge --service-name <name> --location <location>
+```
+
+Skipping this is usually harmless because both names carry a `random_id` suffix that
+changes on re-create — but it matters if a deploy is retried from unchanged Terraform
+state, and the deleted instances count against subscription quota either way.
+
+## Step 6 — Manual cleanup (if full teardown)
 
 If the user wants a complete cleanup including the bootstrap resources:
 
@@ -83,7 +130,7 @@ az group delete --name rgmi${NUMBER} --yes --no-wait
 
 Warn the user that deleting the state backend means Terraform state is lost. If they want to re-deploy later, they must re-run bootstrap and start fresh.
 
-## Step 6 — Verify
+## Step 7 — Verify
 
 ```bash
 NUMBER=$(grep number config/global.tfvars | grep -oP '\d+')

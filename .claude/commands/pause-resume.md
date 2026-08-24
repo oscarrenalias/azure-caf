@@ -3,7 +3,13 @@ description: Pause or resume the hub's expensive resources (Azure Firewall + jum
 allowed-tools: [Bash, Read]
 ---
 
-You are helping the user pause or resume the most expensive resources in the hub — the Azure Firewall and the jump VM. All other resources (APIM, AI Foundry, App Service, AI Search) remain running.
+You are helping the user pause or resume the most expensive hourly resources in the hub — the Azure Firewall and the jump VM.
+
+What this does and does not cover:
+
+- **Still billed while paused:** APIM Developer SKU in lz-platform, the App Service plan, AI Search, and any model usage. Pausing does not make the environment free — it removes the ~$1.25/hr firewall and the VM's compute.
+- **Still working while paused:** the chat UI and the hosted agent. The agent runs on Foundry-managed compute outside the VNet, and the App Service reaches it over a private endpoint. The workflow removes the route table along with the firewall, so VNet egress goes direct to the internet rather than through a next hop that no longer exists.
+- **Not working while paused:** anything needing the self-hosted runner. `appdeploy.yml` and `agentdeploy.yml` both run on the jump VM, so deployments must wait for a resume. Terraform runs on `ubuntu-latest` and are unaffected.
 
 ## Determine the action
 

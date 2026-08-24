@@ -1,5 +1,5 @@
 ---
-description: Full from-scratch deployment of the hub-and-spoke landing zone. Walks through bootstrap, config, hub deploy, lz01 deploy, and initial app deploy in the correct order.
+description: Full from-scratch deployment of the hub-and-spoke landing zone. Walks through bootstrap, config, hub, lz-platform (AI Gateway), lz01, and the agent and UI deploys in the correct order.
 allowed-tools: [Bash, Read, Edit, Write]
 ---
 
@@ -149,22 +149,15 @@ gh api "repos/${REPO}/actions/runners" --jq '.runners[] | {name, status}'
 
 Do not proceed to lz01 until a runner shows `"status": "online"`.
 
-## Phase 3 — Deploy lz01
+## Phase 3 — Deploy lz-platform (shared models + AI Gateway)
 
-```bash
-gh workflow run terraform.yml \
-  -f environment=lz01 \
-  -f action=apply \
-  -f runner=ubuntu-latest
+lz-platform holds the shared AI Foundry models and APIM as the AI Gateway in front of
+them. It must be applied **before** any workload landing zone: lz01's Foundry
+connection is configured with the gateway URL and a subscription key that don't exist
+until this stack is up.
 
-gh run watch
-```
-
-## Phase 3b — Deploy lz-platform (AI Gateway)
-
-lz-platform hosts shared AI Foundry (gpt-4o) and APIM as the AI Gateway. All workload LZs call APIM instead of AI Foundry directly.
-
-**Warning: APIM (Developer SKU) takes 30-45 minutes to provision. This is normal — do not cancel the workflow.**
+**APIM (Developer SKU) takes 30-45 minutes to provision. This is normal — do not
+cancel the workflow.**
 
 ```bash
 gh workflow run terraform.yml \
@@ -175,52 +168,97 @@ gh workflow run terraform.yml \
 gh run watch
 ```
 
-After the workflow completes, note the `apim_gateway_url` output — workload apps use this as their Azure OpenAI base URL (e.g. `https://apim<hex>.azure-api.net/openai`). The `api-key` header accepts an APIM product subscription key.
+### Wire the gateway into lz01
 
-To get an APIM subscription key for a workload team:
 ```bash
 source config/global.env
+REPO=$(git remote get-url origin | sed 's|https://github.com/||;s|\.git$||')
 APIM=$(az apim list --resource-group rg${NUMBER}-lz-platform --query "[0].name" -o tsv)
-az apim product subscription list \
-  --resource-group rg${NUMBER}-lz-platform \
-  --service-name $APIM \
-  --product-id ai-platform \
-  --query "[0].primaryKey" -o tsv
+APIM_RG="rg${NUMBER}-lz-platform"
+BASE="https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${APIM_RG}/providers/Microsoft.ApiManagement/service/${APIM}"
+
+echo "Set this in config/lz01.tfvars:"
+echo "apim_gateway_url = \"https://${APIM}.azure-api.net/openai\""
+
+SUB=$(az rest --method get --url "${BASE}/subscriptions?api-version=2024-05-01" \
+  --query "value[?properties.displayName=='AI Platform Default'].name | [0]" -o tsv)
+KEY=$(az rest --method post --url "${BASE}/subscriptions/${SUB}/listSecrets?api-version=2024-05-01" \
+  --query primaryKey -o tsv)
+
+gh secret set APIM_SUBSCRIPTION_KEY_LZ01 --body "$KEY" --repo "$REPO"
 ```
 
-## Phase 4 — Deploy app1
+Set `apim_gateway_url` in `config/lz01.tfvars` to the URL printed above. The workflow
+passes the secret to Terraform as `TF_VAR_apim_subscription_key`.
 
-Look up the App Service name:
+Also set `allowed_ips` in `config/lz01.tfvars` to the developer's public IP. It gates
+the App Service (so the UI opens in a browser) and AI Search (so the RAG tool works
+during local `azd ai agent run`):
 
 ```bash
-source config/global.env
-az webapp list --resource-group rg${NUMBER}-lz01 --query "[].name" -o tsv
+echo "allowed_ips = [\"$(curl -s ifconfig.me)\"]"
 ```
 
-Trigger the app deploy (runs on the self-hosted runner — the App Service is private-only):
+## Phase 4 — Deploy lz01
+
 ```bash
-gh workflow run appdeploy.yml \
+gh workflow run terraform.yml \
   -f environment=lz01 \
-  -f appservice=<app-service-name>
+  -f action=apply \
+  -f runner=ubuntu-latest
 
 gh run watch
 ```
 
-## Phase 5 — Verify
+## Phase 5 — Deploy the application
 
-Get the jump host IP and print connection instructions:
+Two deployables, both on the self-hosted runner. Deploy the agent first — the UI calls
+it.
+
+```bash
+# LangGraph agent → Foundry Agent Service
+gh workflow run agentdeploy.yml -f environment=lz01
+gh run watch
+
+# FastAPI chat UI → App Service
+source config/global.env
+APP=$(az webapp list --resource-group rg${NUMBER}-lz01 --query "[0].name" -o tsv)
+gh workflow run appdeploy.yml -f environment=lz01 -f appservice=$APP
+gh run watch
+```
+
+## Phase 6 — Verify
+
+The App Service allows the IPs in `allowed_ips`, so verify directly from the
+workstation — no jump host needed. This exercises the whole chain: UI → hosted agent →
+connected-mode model → APIM → shared Foundry.
 
 ```bash
 source config/global.env
-JUMP_IP=$(az network public-ip show \
-  --resource-group rg${NUMBER}-hub \
-  --name publicip-jump \
-  --query ipAddress -o tsv)
 APP=$(az webapp list --resource-group rg${NUMBER}-lz01 --query "[0].name" -o tsv)
 
-echo "Jump host : ssh azureuser@${JUMP_IP}"
-echo "Then run  : curl https://${APP}.azurewebsites.net/"
-echo "Expected  : Hello World"
+curl -s -o /dev/null -w "UI: HTTP %{http_code}\n" "https://${APP}.azurewebsites.net/"
+
+curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello"}'
 ```
 
-Report a full summary: resource groups created, jump host IP, App Service name and private URL, AI Foundry endpoint.
+Expect `HTTP 200` and a JSON `{"response": "...", "response_id": "..."}`.
+
+If `/chat` returns 502 with an agent 500 inside it, the request is failing before it
+reaches the agent container. Check the container is healthy and see whether it logs an
+inbound request at all:
+
+```bash
+export FOUNDRY_PROJECT_ENDPOINT="https://<hub>.services.ai.azure.com/api/projects/<proj>"
+azd ai agent sessions create --agent-name rag-agent --version <n>
+azd ai agent monitor rag-agent --session-id <id> --follow
+```
+
+A healthy container serving `/readiness` with no inbound `POST /responses` means the
+platform rejected the call upstream — usually the Foundry account's network ACL. See
+"AI Gateway network posture" in CLAUDE.md.
+
+Report a full summary: resource groups created, jump host IP, App Service name and
+URL, APIM gateway URL, and the Foundry project endpoint.

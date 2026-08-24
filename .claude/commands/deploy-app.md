@@ -1,72 +1,121 @@
 ---
-description: Deploy or update an application to an existing landing zone App Service. Packages the app, triggers the appdeploy workflow on the self-hosted runner, and verifies the deployment.
+description: Deploy or update the chat UI on App Service, the hosted agent on Foundry Agent Service, or both. Triggers the deploy workflows on the self-hosted runner and verifies the result end to end.
 allowed-tools: [Bash, Read]
 ---
 
-You are helping the user deploy or update an application to an Azure App Service in one of the landing zones. The App Service is private-only, so deployment runs through the self-hosted GitHub Actions runner on the hub jump VM.
+You are helping the user deploy or update the application in a landing zone. There are
+two deployables in `app/`, each with its own workflow, and both run on the self-hosted
+GitHub Actions runner on the hub jump VM because they need VNet access and Docker.
+
+| Deployable | Source | Workflow | Target |
+|---|---|---|---|
+| Chat UI | `app/ui/` | `appdeploy.yml` | App Service container |
+| Agent | `app/agent/` | `agentdeploy.yml` | Foundry Agent Service (hosted agent) |
+
+If the change touches `app/agent/`, deploy the agent. If it touches `app/ui/`, deploy
+the UI. If both, deploy the agent first — the UI calls it.
 
 ## Step 1 — Confirm inputs
 
-Ask the user for:
-1. Which landing zone to deploy to (e.g. `lz01`)
-2. Which app directory to deploy (default: `app1`)
-3. The App Service name — if they don't know it, look it up:
+Ask which landing zone (default `lz01`) and which deployable. Look up the App Service
+name if the UI is being deployed:
 
 ```bash
-NUMBER=$(grep number config/global.tfvars | grep -oP '\d+')
-LZ=<lzname>
-az webapp list --resource-group rg${NUMBER}-${LZ} --query "[].{name:name, state:state}" -o table
+source config/global.env
+az webapp list --resource-group rg${NUMBER}-<lzname> --query "[].{name:name,state:state}" -o table
 ```
 
-## Step 2 — Check self-hosted runner is online
-
-The appdeploy workflow requires the self-hosted runner (hub jump VM). Check it is registered and online:
+## Step 2 — Check the self-hosted runner is online
 
 ```bash
-gh api repos/${{ github.repository }}/actions/runners --jq '.runners[] | {name,status,busy}'
+REPO=$(git remote get-url origin | sed 's|https://github.com/||;s|\.git$||')
+gh api "repos/${REPO}/actions/runners" --jq '.runners[] | {name,status,busy}'
 ```
 
-If no runner shows as `online`, the hub jump VM may need to be started or the runner service restarted. Instruct the user to SSH to the jump host and check `sudo systemctl status actions.runner.*`.
+If nothing shows `online`, the jump VM may be deallocated (see `/pause-resume`) or the
+runner service stopped. Start the VM with
+`az vm start --resource-group rg<number>-hub --name jump7`, or SSH in and check
+`sudo systemctl status actions.runner.*`.
 
-## Step 3 — Trigger deployment
+## Step 3 — Deploy
+
+Both workflows build on the checked-out ref, so make sure the changes are **committed
+and pushed** first — deploying uncommitted work silently ships the previous commit.
 
 ```bash
-gh workflow run appdeploy.yml \
-  -f environment=<lzname> \
-  -f appservice=<app-service-name>
-```
+# Agent
+gh workflow run agentdeploy.yml -f environment=<lzname>
 
-Watch the run:
-```bash
-gh run list --workflow=appdeploy.yml --limit=3
+# UI
+gh workflow run appdeploy.yml -f environment=<lzname> -f appservice=<app-service-name>
+
 gh run watch
 ```
 
-The workflow:
-1. Zips the app directory
-2. Sets the startup command (`gunicorn --bind=0.0.0.0 --timeout 600 app:app`)
-3. Deploys the zip via `az webapp deploy`
+`agentdeploy.yml` patches the Foundry project name into `app/azure.yaml` with `yq`,
+runs `azd deploy` (the platform builds from `pyproject.toml` + `uv.lock` — there is no
+`requirements.txt`, and adding one would override the lock), then grants the agent's
+platform-created identity `Foundry Project Manager` on the account.
+
+`appdeploy.yml` builds `app/ui/Dockerfile`, pushes to the landing zone ACR, and points
+the App Service at the new tag. The App Service pulls with its managed identity.
 
 ## Step 4 — Verify
 
-After the workflow completes, verify the app is responding. The App Service has no public access, so the check must go through the jump host:
+The App Service allows the IPs in `allowed_ips`, so check from the workstation:
 
 ```bash
-NUMBER=$(grep number config/global.tfvars | grep -oP '\d+')
-JUMP_IP=$(az network public-ip show \
-  --resource-group rg${NUMBER}-hub \
-  --name publicip-jump \
-  --query ipAddress -o tsv)
-echo "SSH to jump host: ssh azureuser@${JUMP_IP}"
-echo "Then run: curl https://<app-service-name>.azurewebsites.net/"
+source config/global.env
+APP=$(az webapp list --resource-group rg${NUMBER}-<lzname> --query "[0].name" -o tsv)
+curl -s -o /dev/null -w "UI: HTTP %{http_code}\n" "https://${APP}.azurewebsites.net/"
+curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
+  -H "Content-Type: application/json" -d '{"message":"hello"}'
 ```
 
-Instruct the user to run the curl from the jump host. The private DNS zone resolves the App Service hostname to a private IP reachable from within the VNets.
+To exercise the agent without the UI, POST to the agent endpoint directly with an
+Entra token:
+
+```bash
+TOKEN=$(az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv)
+curl -s -X POST "${FOUNDRY_PROJECT_ENDPOINT}/agents/rag-agent/endpoint/protocols/openai/responses?api-version=v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"input":"hello","stream":false}'
+```
+
+A `200` with `"status": "completed"` is success. A `200` whose body says
+`"status": "failed"` means the container ran and raised — that is an application error.
 
 ## Step 5 — Troubleshooting
 
-If the deployment fails:
-- Check the workflow logs: `gh run view --log`
-- If the runner is missing: hub VM may be stopped — `az vm start --resource-group rg<number>-hub --name jump7`
-- If the app crashes on startup: check App Service logs via `az webapp log tail --resource-group ... --name ...` from the jump host
-- Startup command assumes `gunicorn` is in `requirements.txt` — verify it is present
+**Read the container logs before theorising.** Hosted agent logs are only reachable
+through a session; there is no log route on the data plane and no App Insights wired
+up:
+
+```bash
+export FOUNDRY_PROJECT_ENDPOINT="https://<hub>.services.ai.azure.com/api/projects/<proj>"
+azd ai agent sessions create --agent-name rag-agent --version <n>
+azd ai agent monitor rag-agent --session-id <id> --follow
+# then invoke with -H "x-agent-session-id: <id>" to pin the request to that session
+```
+
+Distinguish the two failure shapes:
+
+- **Bare `500`, no response envelope, and no inbound `POST /responses` in the container
+  log.** The platform rejected the call before the container — almost always the
+  Foundry account's network ACL. Note that ACL changes take minutes to reach the data
+  plane and it serves the old state meanwhile, so never conclude anything from a test
+  run seconds after changing it.
+- **`200` with `"status": "failed"`.** The container ran and the handler raised. The
+  traceback is in the session log.
+
+For the UI, container startup problems show up in the App Service docker log:
+
+```bash
+az webapp log download --name <app> --resource-group rg<number>-<lz> --log-file /tmp/logs.zip
+unzip -o /tmp/logs.zip -d /tmp/logs && tail -40 /tmp/logs/LogFiles/*docker.log
+```
+
+`ImagePullUnauthorizedFailure` means registry auth, not networking: ACR has
+`admin_enabled = false`, so the pull must use the app's managed identity
+(`container_registry_use_managed_identity`), and any leftover
+`DOCKER_REGISTRY_SERVER_*` app settings take precedence and must be deleted.
