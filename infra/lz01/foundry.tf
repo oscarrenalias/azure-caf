@@ -197,6 +197,12 @@ resource "azurerm_private_endpoint" "foundry_hub" {
   resource_group_name = module.lz_data.rg.name
   subnet_id           = azurerm_subnet.item["private-endpoint"].id
 
+  # A network-injected account keeps provisioning after its create call returns, and a
+  # private endpoint raised against it in the meantime fails with
+  # AccountProvisioningStateInvalid ("... in state Accepted"). Sequencing behind the
+  # capability host is enough: that only succeeds once the account is fully provisioned.
+  depends_on = [azapi_resource.foundry_project_capability_host]
+
   private_service_connection {
     name                           = "psc-hub${random_id.foundry.hex}"
     private_connection_resource_id = azurerm_cognitive_account.foundry_hub.id
