@@ -41,6 +41,8 @@ config/
   hub.env / lz01.env  Per-env GitHub Actions env overrides
 app/            azd project: ui/ (FastAPI chat UI on App Service) and agent/ (LangGraph
                 agent on Foundry Agent Service). See "Hosted agent (app/)" below.
+docs/           Longer-form guides that don't belong in this file
+                vscode-remote-development.md — the jump-host development loop
 .github/workflows/
   terraform.yml   Terraform plan/apply/destroy — runs on ubuntu-latest
   appdeploy.yml   UI container build + App Service deploy — self-hosted runner (jump VM)
@@ -257,6 +259,11 @@ curl -X POST http://localhost:8088/responses \
   -H "Content-Type: application/json" \
   -d '{"input":"hello","stream":false}'
 ```
+
+Editing over SSH is not the intended workflow — use VS Code Remote-SSH, which keeps the
+IDE local while files and processes stay on the VM. Setup, the git-credentials caveat
+and troubleshooting are in
+[docs/vscode-remote-development.md](docs/vscode-remote-development.md).
 
 If the forward fails with `bind: Address already in use`, something local already holds
 the port — usually an `azure-ai-inspector` left over from an earlier workstation run.
