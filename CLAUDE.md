@@ -227,13 +227,42 @@ Two identities are involved and they are easy to confuse:
 
 **`azd ai agent run` must run on the jump VM, not a workstation.** It runs the agent
 process locally but still calls the Foundry data plane, which has no public inbound
-since the account was network-injected. Run it on the jump VM and forward the ports:
+since the account was network-injected.
+
+The jump host is set up for this: `uv` installed, a checkout at `~/azure-caf` (separate
+from the runner's workspace, which every deploy wipes), and an azd environment called
+`jumpdev` holding the project endpoint, model names and Search settings. The VM's
+system-assigned identity has `Foundry Project Manager` on the account (`roles.tf`), so
+`DefaultAzureCredential` authenticates over IMDS — no `az login`, no credentials on disk.
+
+A `Host azure-jump` entry with the port forwards belongs in `~/.ssh/config`:
+
+```
+Host azure-jump
+  HostName <jump-host-public-ip>
+  User azureuser
+  IdentityFile ~/.ssh/id_ed25519
+  LocalForward 8088 localhost:8088
+  LocalForward 8087 localhost:8087
+```
+
+Then:
 
 ```bash
-ssh -L 8088:localhost:8088 -L 8087:localhost:8087 azureuser@<jump-host-public-ip>
-# on the VM, from the repo's app/ directory
-azd ai agent run
+ssh azure-jump                       # terminal 1 — keeps the forwards open
+cd ~/azure-caf/app && git pull && azd ai agent run
+
+# terminal 2, on the workstation — 8088 is forwarded, so this reaches the VM
+curl -X POST http://localhost:8088/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input":"hello","stream":false}'
 ```
+
+If the forward fails with `bind: Address already in use`, something local already holds
+the port — usually an `azure-ai-inspector` left over from an earlier workstation run.
+
+Remember the NSG rule in `infra/hub/vm.tf` gates SSH by source IP. A stale value there
+now blocks local development entirely, not just SSH.
 
 `config/lz01.tfvars` still carries `allowed_ips`, but it now applies **only** to the App
 Service (`appservice.tf`) — that is what lets the UI open in a browser. Update it when
