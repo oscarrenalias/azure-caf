@@ -1,0 +1,22 @@
+[project]
+name = "rag-agent"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "azure-ai-agentserver-core==2.1.0b2",
+    "azure-ai-agentserver-responses==2.1.0b2",
+    "azure-ai-projects>=2.4.0",
+    "azure-identity>=1.25.0",
+    "langchain-azure-ai>=1.2.8",
+    "langchain>=1.3.0",
+    "langgraph>=1.2.0",
+    "langchain-openai>=1.5.0",
+    "openai>=2.50.0,<3",
+    "httpx<1",
+    "azure-search-documents>=11.6.0",
+    "hypercorn>=0.18.0",
+    "python-dotenv>=1.0.0",
+]
+
+# uv settings live in uv.toml, which overrides [tool.uv] entirely rather than
+# merging with it. Adding a [tool.uv] section here would be silently ignored.

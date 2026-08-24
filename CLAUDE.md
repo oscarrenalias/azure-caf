@@ -39,10 +39,12 @@ config/
   hub.tfvars    Hub-specific networks, peerings, subnets
   lz01.tfvars   lz01-specific subnets
   hub.env / lz01.env  Per-env GitHub Actions env overrides
-app1/           Flask placeholder app ("Hello World"), deployed to lz01 App Service
+app/            azd project: ui/ (FastAPI chat UI on App Service) and agent/ (LangGraph
+                agent on Foundry Agent Service). See "Hosted agent (app/)" below.
 .github/workflows/
-  terraform.yml  Terraform plan/apply/destroy — runs on ubuntu-latest
-  appdeploy.yml  App deploy to App Service — runs on self-hosted runner (jump VM)
+  terraform.yml   Terraform plan/apply/destroy — runs on ubuntu-latest
+  appdeploy.yml   UI container build + App Service deploy — self-hosted runner (jump VM)
+  agentdeploy.yml Hosted agent deploy via azd — self-hosted runner (jump VM)
 bootstrap.sh    One-time setup: storage account, managed identity, OIDC federated credential
 ```
 
@@ -105,7 +107,7 @@ Inputs:
 - `environment`: `lz01` (or `lz02`)
 - `appservice`: the App Service name (find it in the portal or from Terraform state, e.g. `app<hex>`)
 
-Runs on the **self-hosted runner** (the hub jump VM) because the App Service has no public network access and must be reached via private endpoint. Packages `app1/` as a zip and deploys with `az webapp deploy`.
+Runs on the **self-hosted runner** (the hub jump VM), which has the VNet access and Docker needed to build and push. Builds `app/ui/Dockerfile`, pushes it to the landing zone's ACR, and points the App Service at the new tag. The App Service pulls with its own managed identity — ACR has `admin_enabled = false`, so registry credentials in app settings cannot work.
 
 ## Verifying deployment
 
@@ -117,14 +119,126 @@ curl https://<app-service-name>.azurewebsites.net/
 # Expected: Hello World
 ```
 
-## AI Foundry (Azure AI Services)
+## AI Foundry and the AI Gateway
 
-Defined in `infra/lz01/aifoundry.tf`. Deployed as an `AIServices` Cognitive Account with:
-- Public access disabled, reachable only via private endpoint in the `private-endpoint` subnet
-- Private DNS zones for both `cognitiveservices` and `openai` sub-resources
-- A `gpt-5.6-sol` model deployment on `DataZoneStandard` SKU
+Models are a **shared platform resource**, not a workload resource:
 
-The `ai-agents` subnet (10.1.4.0/24) is reserved for Container Apps environments that will host agentic workloads.
+```
+lz-platform                                   lz01 (workload)
+  AI Foundry `aif<hex>`  ◄── private ────  APIM `apim<hex>`        Foundry hub `hub<hex>`
+    gpt-4o                  endpoint         (AI Gateway)            └── project `proj<hex>`
+    text-embedding-3-small                         ▲                       └── connection `apim-gateway`
+    public access disabled                         └──── connected mode ───┘
+```
+
+- `infra/lz-platform/aifoundry.tf` — the shared Foundry account holding the model
+  deployments. Public access disabled; reachable only via its private endpoint.
+- `infra/lz-platform/apim.tf` — APIM as the AI Gateway in front of it. Swaps the
+  consumer subscription key for an APIM managed-identity token, enforces a
+  per-subscription token limit, and reaches the Foundry backend privately.
+- `infra/lz01/foundry.tf` — the workload Foundry account and project that host the
+  Agent Service, plus the `apim-gateway` connection. Agents reference models as
+  `apim-gateway/<deployment>` (e.g. `apim-gateway/gpt-4o`).
+
+The `ai-agents` subnet (10.1.4.0/24) is reserved for agent compute.
+
+### The `apim-gateway` connection
+
+An APIM gateway is a *ModelGateway* connection, which is a different object from a
+connection to a Cognitive Services account. It needs:
+
+- `category = "ApiManagement"` (not `AzureOpenAI`)
+- `metadata.deploymentInPath` — `"true"` here, since the gateway passes through the
+  Azure OpenAI URL shape `<target>/deployments/<deployment>/chat/completions`
+- `metadata.models` — a JSON-string static list of the deployments the gateway
+  exposes, which must be kept in sync with `infra/lz-platform/aifoundry.tf`. The
+  alternative is `metadata.modelDiscovery`, which requires `/deployments` operations
+  on the APIM API backed by ARM.
+
+Get any of these wrong and model resolution fails with `Connection 'apim-gateway'
+not found` — the name resolves fine over the management API, so the error is
+misleading. Schema:
+[foundry-samples 01-connections/apim](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/01-connections/apim).
+
+### AI Gateway network posture
+
+APIM runs in **External** VNet mode. Inbound is public (subscription key + api
+policy); outbound stays in the VNet, so the platform Foundry account is only ever
+reached over its private endpoint.
+
+External rather than Internal because the Foundry inference service must reach the
+gateway for connected-mode model calls. Internal mode publishes no public DNS record
+for `<name>.azure-api.net`, and the workload Foundry account is Microsoft-managed
+multi-tenant compute (`networkInjections: null`) whose egress is not in this VNet —
+so with Internal mode the gateway is unreachable and every model call fails.
+
+**Target state (follow-on work): end-to-end private gateway.** Mirrors Microsoft's
+[template 16](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/16-private-network-standard-agent-apim-setup):
+
+1. Recreate the lz01 Foundry account with **VNet injection** into a /24 delegated to
+   `Microsoft.App/environments` (the `ai-agents` subnet). Network injection cannot be
+   added to an existing account — the account must be rebuilt, and deleted/purged
+   with its capability hosts first or the subnet stays locked.
+2. Add the BYO resources standard agent setup requires — Storage, Cosmos DB, AI
+   Search — plus account and project capability hosts.
+3. Migrate APIM from classic `Developer_1` to `StandardV2` with outbound VNet
+   integration and an inbound private endpoint (`privatelink.azure-api.net`).
+   Classic tiers cannot have an inbound private endpoint while VNet-injected.
+4. Local development then has to run inside the VNet — on the hub jump VM with ports
+   8088 and 8087 forwarded — which is what Microsoft's own guidance prescribes for a
+   VNet-only Foundry endpoint.
+
+### Hosted agent (`app/`)
+
+Dependencies are managed with **uv only** — `pyproject.toml` + `uv.lock`. There is no
+`requirements.txt` and none should be added: `azure.yaml` sets
+`codeConfiguration.dependencyResolution: remote_build`, and the Foundry remote build
+resolves from the uv lock, the same as the
+[uv-pyproject hosted agent sample](https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents/bring-your-own/responses/uv-pyproject).
+A stale `requirements.txt` is worse than none at all: it silently wins over
+`pyproject.toml` in the remote build, which is how the hosted agent once ended up
+running a mismatched `azure-ai-agentserver` pair that `pyproject.toml` had fixed.
+
+`.azdignore` matters for the same reason — without it the local `.venv` (macOS
+binaries, ~145 MB) and `__pycache__` get uploaded into a Linux build.
+
+`app/azure.yaml` is authoritative for the agent definition. `agentdeploy.yml` patches
+in only the Foundry project name, which can't live in the file because it carries a
+`random_id` suffix and appears as a service key rather than a value.
+
+Two identities are involved and they are easy to confuse:
+
+- The **App Service** user-assigned identity calls the agent endpoint. Managed in
+  `infra/lz01/roles.tf`, needs `Foundry Project Manager`.
+- The **agent's own** identity (`<account>-<project>-<agent>-AgentIdentity`) is created
+  by the platform on first deploy and starts with no role assignments, so the
+  container cannot call the project data plane for its model calls. Terraform can't own
+  a principal that doesn't exist until deploy time, so `agentdeploy.yml` grants it
+  after `azd deploy`. It is stable across agent versions.
+
+### Developer access for local `azd` runs
+
+`azd ai agent run` / `invoke --local` runs the agent process on the workstation but
+still calls the Foundry data plane. `config/lz01.tfvars` carries `allowed_ips`, an IP
+allowlist applied to AI Search (`search.tf`) and the App Service (`appservice.tf`).
+Update it when your public IP changes. The workload Foundry account keeps the same
+list but its `default_action` is `Allow` — see `foundry.tf` for why hosted agents
+force that — so the list is currently inert there.
+
+**Changes to a Cognitive Services ACL take minutes to reach the data plane, and it
+serves the old state meanwhile.** This makes network troubleshooting actively
+misleading in both directions:
+
+- After tightening, calls keep succeeding for a while. A permissive setting tested
+  immediately after a stricter one can look like it works when it does not — this is
+  how `bypass = "AzureServices"` was wrongly recorded as sufficient for hosted agents.
+- After loosening, calls keep failing with
+  `403 Public access is disabled. Please configure private endpoint.` (look for
+  `policy-id: ThrowExceptionDueToTrafficDenied`) even though ARM reports the new
+  values. Toggling `publicNetworkAccess` Disabled → Enabled forces a refresh.
+
+Wait several minutes before drawing a conclusion, and re-test from a cold state
+rather than immediately after changing the setting you are testing.
 
 ## Adding a new landing zone
 
@@ -144,6 +258,7 @@ Four skills are available in `.claude/commands/` to automate the most common wor
 | add-landing-zone | `/add-landing-zone` | Adding a new LZ (lz02, lz03, …) to the existing hub |
 | deploy-app | `/deploy-app` | Deploying or updating an app on an existing landing zone's App Service |
 | teardown | `/teardown` | Destroying resources in safe reverse order (LZs first, hub last) |
+| pause-resume | `/pause-resume` | Pause (destroy firewall + deallocate VM, saves ~$1.25/hr) or resume (recreate firewall + start VM, ~10 min) |
 
 ### `/deploy-hub-spoke`
 

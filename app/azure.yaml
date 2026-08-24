@@ -1,0 +1,39 @@
+name: rag-app
+services:
+  rag-agent:
+    name: rag-agent
+    host: azure.ai.agent
+    project: agent
+    language: python
+    kind: hosted
+    startupCommand: "uv run python main.py"
+    # remote_build resolves dependencies from pyproject.toml + uv.lock — uv only,
+    # no requirements.txt. Mirrors the uv-pyproject hosted agent sample:
+    # foundry-samples/samples/python/hosted-agents/bring-your-own/responses/uv-pyproject
+    # The Dockerfile is kept for running the agent as a container locally; the
+    # platform does not use it in this mode, so it is not referenced here.
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    env:
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      AZURE_AI_EMBEDDING_DEPLOYMENT_NAME: ${AZURE_AI_EMBEDDING_DEPLOYMENT_NAME}
+      SEARCH_ENDPOINT: ${SEARCH_ENDPOINT}
+      SEARCH_API_KEY: ${SEARCH_API_KEY}
+      SEARCH_INDEX_NAME: ${SEARCH_INDEX_NAME}
+    environmentVariables:
+      - name: AZURE_AI_MODEL_DEPLOYMENT_NAME
+        value: apim-gateway/gpt-4o
+      - name: AZURE_AI_EMBEDDING_DEPLOYMENT_NAME
+        value: apim-gateway/text-embedding-3-small
+    container:
+      resources:
+        cpu: '0.5'
+        memory: 1Gi
+infra:
+  provider: microsoft.foundry

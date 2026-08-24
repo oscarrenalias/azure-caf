@@ -160,6 +160,34 @@ gh workflow run terraform.yml \
 gh run watch
 ```
 
+## Phase 3b — Deploy lz-platform (AI Gateway)
+
+lz-platform hosts shared AI Foundry (gpt-4o) and APIM as the AI Gateway. All workload LZs call APIM instead of AI Foundry directly.
+
+**Warning: APIM (Developer SKU) takes 30-45 minutes to provision. This is normal — do not cancel the workflow.**
+
+```bash
+gh workflow run terraform.yml \
+  -f environment=lz-platform \
+  -f action=apply \
+  -f runner=ubuntu-latest
+
+gh run watch
+```
+
+After the workflow completes, note the `apim_gateway_url` output — workload apps use this as their Azure OpenAI base URL (e.g. `https://apim<hex>.azure-api.net/openai`). The `api-key` header accepts an APIM product subscription key.
+
+To get an APIM subscription key for a workload team:
+```bash
+source config/global.env
+APIM=$(az apim list --resource-group rg${NUMBER}-lz-platform --query "[0].name" -o tsv)
+az apim product subscription list \
+  --resource-group rg${NUMBER}-lz-platform \
+  --service-name $APIM \
+  --product-id ai-platform \
+  --query "[0].primaryKey" -o tsv
+```
+
 ## Phase 4 — Deploy app1
 
 Look up the App Service name:

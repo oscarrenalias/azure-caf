@@ -10,6 +10,7 @@ on:
         options:
           - hub
           - lz01
+          - lz-platform
       action:
         description: 'Action'
         required: true
@@ -40,6 +41,7 @@ env:
   ARM_USE_OIDC: true
   TF_VAR_github_repository: ${{ github.repository }}
   TF_VAR_github_runner_pat: ${{ secrets.GH_RUNNER_PAT }}
+  TF_VAR_apim_subscription_key: ${{ secrets.APIM_SUBSCRIPTION_KEY_LZ01 }}
   # TF_LOG: DEBUG
 
 name: terraform

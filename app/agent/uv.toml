@@ -1,0 +1,8 @@
+# uv.toml takes precedence over [tool.uv] in pyproject.toml as a whole — uv does not
+# merge them — so every uv setting has to live here, not just system-certs. Leaving
+# prerelease in pyproject.toml silently dropped it, which changed the resolution
+# inputs and made `uv sync --locked` (used by `azd ai agent run`) reject the lockfile.
+system-certs = true
+
+# azure-ai-agentserver-core/-responses are betas.
+prerelease = "allow"
