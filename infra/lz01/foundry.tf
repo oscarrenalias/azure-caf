@@ -20,8 +20,13 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   resource_group_name           = module.lz_data.rg.name
   kind                          = "AIServices"
   sku_name                      = "S0"
-  custom_subdomain_name         = "hub${random_id.foundry.hex}"
-  public_network_access_enabled = true
+  custom_subdomain_name = "hub${random_id.foundry.hex}"
+
+  # Private-endpoint-only inbound, which BYO VNet requires. Callers must be in the VNet
+  # or peered to it: the App Service over its VNet integration, the jump VM (and the
+  # GitHub Actions runner on it) over the hub peering. `azd ai agent run` therefore no
+  # longer works from a workstation — run it on the jump VM with 8088 forwarded.
+  public_network_access_enabled = false
   project_management_enabled    = true
 
   # Network injection: agent compute runs in our own delegated subnet rather than on
@@ -38,13 +43,11 @@ resource "azurerm_cognitive_account" "foundry_hub" {
     subnet_id = azurerm_subnet.item["ai-agents"].id
   }
 
-  # Deny is safe now that agents run inside the VNet: the platform reaches the account
-  # over the private endpoint below, and private endpoint traffic is not evaluated
-  # against these rules. Under public egress this same setting broke every hosted
-  # invocation with a 500 that never reached the container.
+  # Belt and braces behind public_network_access_enabled = false: if the public endpoint
+  # is ever turned back on, it stays closed until someone adds a rule deliberately.
+  # No ip_rules — developer access is via the jump VM, not the public endpoint.
   network_acls {
     default_action = "Deny"
-    ip_rules       = var.allowed_ips
   }
 
   identity {
