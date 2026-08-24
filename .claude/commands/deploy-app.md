@@ -72,8 +72,10 @@ curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
   -H "Content-Type: application/json" -d '{"message":"hello"}'
 ```
 
-To exercise the agent without the UI, POST to the agent endpoint directly with an
-Entra token:
+To exercise the agent without the UI, POST to the agent endpoint directly with an Entra
+token. **This only works from inside the VNet** — run it on the jump VM. The Foundry
+account is private-endpoint only, so from a workstation it returns
+`403 Public access is disabled`:
 
 ```bash
 TOKEN=$(az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv)
@@ -89,7 +91,8 @@ A `200` with `"status": "completed"` is success. A `200` whose body says
 
 **Read the container logs before theorising.** Hosted agent logs are only reachable
 through a session; there is no log route on the data plane and no App Insights wired
-up:
+up. Run these on the jump VM — they talk to the Foundry data plane, which is
+private-endpoint only:
 
 ```bash
 export FOUNDRY_PROJECT_ENDPOINT="https://<hub>.services.ai.azure.com/api/projects/<proj>"

@@ -23,10 +23,16 @@ resource "azurerm_linux_web_app" "item" {
   virtual_network_subnet_id = azurerm_subnet.item["app-service-integration"].id
   https_only                = true
 
-  # Public access is on only to carry the ip_restriction allowlist below, the same
-  # pattern as the Foundry account and AI Search. With allowed_ips empty the site
-  # config denies by default, so nothing is publicly reachable.
+  # Public access is on only to carry the ip_restriction allowlist below. With
+  # allowed_ips empty the site config denies by default, so nothing is publicly
+  # reachable. This is the one component that still needs a public front door — it is
+  # how the UI is opened in a browser.
   public_network_access_enabled = true
+
+  # Pull the container through the VNet rather than over the platform network, so the
+  # image can be fetched from ACR's private endpoint. Without this, closing ACR's public
+  # access leaves the site unable to start on its next cold start or restart.
+  vnet_image_pull_enabled = true
 
   identity {
     type         = "UserAssigned"

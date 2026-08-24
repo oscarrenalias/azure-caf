@@ -1,5 +1,15 @@
 resource "random_id" "foundry" {
   byte_length = 6
+
+  # Network injection can only be set when the account is created, so enabling it
+  # replaces the account. Without forcing a new random id the replacement would reuse
+  # the current name, which the soft-deleted account still holds for 48 hours, and the
+  # create would fail on a name conflict. Bumping a keeper regenerates the suffix so
+  # destroy and create don't collide. Change this value again only if the account has
+  # to be rebuilt for another create-only setting.
+  keepers = {
+    network_injection = "agent-subnet"
+  }
 }
 
 data "azurerm_client_config" "current" {}
@@ -10,32 +20,34 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   resource_group_name           = module.lz_data.rg.name
   kind                          = "AIServices"
   sku_name                      = "S0"
-  custom_subdomain_name         = "hub${random_id.foundry.hex}"
-  public_network_access_enabled = true
+  custom_subdomain_name = "hub${random_id.foundry.hex}"
+
+  # Private-endpoint-only inbound, which BYO VNet requires. Callers must be in the VNet
+  # or peered to it: the App Service over its VNet integration, the jump VM (and the
+  # GitHub Actions runner on it) over the hub peering. `azd ai agent run` therefore no
+  # longer works from a workstation — run it on the jump VM with 8088 forwarded.
+  public_network_access_enabled = false
   project_management_enabled    = true
 
-  # default_action must be Allow for hosted agents to work at all.
+  # Network injection: agent compute runs in our own delegated subnet rather than on
+  # Microsoft-managed infrastructure outside the VNet. This is what lets the account,
+  # ACR and AI Search all be closed to the internet — with public egress the platform
+  # calls in from IPs Azure does not publish, so there is nothing to allowlist.
   #
-  # A hosted agent's request is orchestrated platform-side — FoundryStorageProvider
-  # writes the response before the container is invoked — from Microsoft-managed
-  # compute outside this VNet, on egress IPs Azure does not publish. With Deny, every
-  # hosted invocation fails with a 500 that never reaches the container; the session
-  # log shows the container healthy and serving /readiness with no inbound request.
-  #
-  # bypass = "AzureServices" does NOT cover that path. It appeared to work when first
-  # tested, but only because the data plane was still serving a permissive state set
-  # moments earlier — retested after a 5 minute propagation wait, Deny + bypass fails
-  # consistently while Allow succeeds on the first attempt.
-  #
-  # The endpoint remains Entra-authenticated and RBAC-gated, and in-VNet callers (the
-  # App Service) reach it over the private endpoint below. Closing it properly
-  # requires network injection — see "AI Gateway network posture" in CLAUDE.md.
-  #
-  # ip_rules are inert while default_action is Allow; they are kept so the allowlist
-  # is already in place if this returns to Deny once the agent runs inside the VNet.
+  # The subnet must be delegated to Microsoft.App/environments, dedicated to this one
+  # Foundry account, RFC1918, and in the same region as the account. Agent state uses
+  # platform-managed storage, so no BYO Storage/Cosmos/Search is required — the
+  # "basic agent with VNet injection" shape from Microsoft's template 11.
+  network_injection {
+    scenario  = "agent"
+    subnet_id = azurerm_subnet.item["ai-agents"].id
+  }
+
+  # Belt and braces behind public_network_access_enabled = false: if the public endpoint
+  # is ever turned back on, it stays closed until someone adds a rule deliberately.
+  # No ip_rules — developer access is via the jump VM, not the public endpoint.
   network_acls {
-    default_action = "Allow"
-    ip_rules       = var.allowed_ips
+    default_action = "Deny"
   }
 
   identity {
@@ -78,6 +90,27 @@ resource "azapi_resource" "foundry_project" {
 
   lifecycle {
     ignore_changes = [body, output]
+  }
+}
+
+# Capability host — required for agents once the account is network-injected. Without
+# it the project has no agent runtime bound to the delegated subnet.
+#
+# Deletion order matters on any future rebuild: this must be deleted before the
+# account, and the account then purged, or the subnet stays linked and the next apply
+# fails with "Subnet already in use". Terraform destroys children first, so a normal
+# destroy is fine; a manual account deletion is not.
+resource "azapi_resource" "foundry_project_capability_host" {
+  type      = "Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-04-01-preview"
+  name      = "caphostproj"
+  parent_id = azapi_resource.foundry_project.id
+
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      capabilityHostKind = "Agents"
+    }
   }
 }
 
@@ -167,6 +200,12 @@ resource "azurerm_private_endpoint" "foundry_hub" {
   location            = module.lz_data.rg.location
   resource_group_name = module.lz_data.rg.name
   subnet_id           = azurerm_subnet.item["private-endpoint"].id
+
+  # A network-injected account keeps provisioning after its create call returns, and a
+  # private endpoint raised against it in the meantime fails with
+  # AccountProvisioningStateInvalid ("... in state Accepted"). Sequencing behind the
+  # capability host is enough: that only succeeds once the account is fully provisioned.
+  depends_on = [azapi_resource.foundry_project_capability_host]
 
   private_service_connection {
     name                           = "psc-hub${random_id.foundry.hex}"

@@ -19,9 +19,19 @@ resource "azurerm_role_assignment" "github_actions_foundry_manager" {
   principal_id         = data.azurerm_user_assigned_identity.github_actions.principal_id
 }
 
-import {
-  to = azurerm_role_assignment.appservice_ai_developer
-  id = "/subscriptions/05b45b16-d05c-4322-8af3-5c839cedae36/resourceGroups/rg17872182643090-lz01/providers/Microsoft.CognitiveServices/accounts/hub45c2224c22f5/providers/Microsoft.Authorization/roleAssignments/25be65c5-544a-4eda-8edb-a3a15870b3af"
+# Jump VM system-assigned identity → Foundry Project Manager on the Foundry Hub.
+# Since the account went private-endpoint only, the jump host is where local development
+# happens (`azd ai agent run`). Granting its identity means DefaultAzureCredential picks
+# up the VM's managed identity over IMDS, so the dev loop needs no interactive az login.
+data "azurerm_virtual_machine" "jump" {
+  name                = "jump7"
+  resource_group_name = "rg${var.number}-${var.hub}"
+}
+
+resource "azurerm_role_assignment" "jump_vm_foundry_manager" {
+  scope                = azurerm_cognitive_account.foundry_hub.id
+  role_definition_name = "Foundry Project Manager"
+  principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
 }
 
 # App Service managed identity → Foundry Project Manager on the Foundry Hub.

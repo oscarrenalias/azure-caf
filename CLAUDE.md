@@ -160,33 +160,40 @@ not found` — the name resolves fine over the management API, so the error is
 misleading. Schema:
 [foundry-samples 01-connections/apim](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/01-connections/apim).
 
-### AI Gateway network posture
+### Network posture
 
-APIM runs in **External** VNet mode. Inbound is public (subscription key + api
-policy); outbound stays in the VNet, so the platform Foundry account is only ever
-reached over its private endpoint.
+The workload Foundry account is **network-injected** (BYO VNet): agent compute runs in
+the `ai-agents` subnet, delegated to `Microsoft.App/environments`, rather than on
+Microsoft-managed infrastructure. This is the "basic agent with VNet injection" shape —
+agent state uses platform-managed storage, so no BYO Storage, Cosmos DB or AI Search is
+required. See Microsoft's
+[networking options](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/networking-options)
+and [template 11](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-terraform/11-private-network-basic-vnet).
 
-External rather than Internal because the Foundry inference service must reach the
-gateway for connected-mode model calls. Internal mode publishes no public DNS record
-for `<name>.azure-api.net`, and the workload Foundry account is Microsoft-managed
-multi-tenant compute (`networkInjections: null`) whose egress is not in this VNet —
-so with Internal mode the gateway is unreachable and every model call fails.
+What that buys, and what it costs:
 
-**Target state (follow-on work): end-to-end private gateway.** Mirrors Microsoft's
-[template 16](https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-bicep/16-private-network-standard-agent-apim-setup):
+| Component | Posture |
+|---|---|
+| Workload Foundry account | Private endpoint only; `public_network_access_enabled = false`, ACL `Deny` |
+| Platform Foundry (models) | Private endpoint only, reached by APIM |
+| ACR | Private endpoint only; App Service pulls via `vnet_image_pull_enabled` |
+| AI Search | Private endpoint only |
+| APIM gateway | Public ingress, subscription key + api policy (see below) |
+| App Service (UI) | Public ingress restricted to `allowed_ips` — the one public front door |
+| `azd ai agent run` | **Jump VM only.** The Foundry endpoint has no public inbound |
 
-1. Recreate the lz01 Foundry account with **VNet injection** into a /24 delegated to
-   `Microsoft.App/environments` (the `ai-agents` subnet). Network injection cannot be
-   added to an existing account — the account must be rebuilt, and deleted/purged
-   with its capability hosts first or the subnet stays locked.
-2. Add the BYO resources standard agent setup requires — Storage, Cosmos DB, AI
-   Search — plus account and project capability hosts.
-3. Migrate APIM from classic `Developer_1` to `StandardV2` with outbound VNet
-   integration and an inbound private endpoint (`privatelink.azure-api.net`).
-   Classic tiers cannot have an inbound private endpoint while VNet-injected.
-4. Local development then has to run inside the VNet — on the hub jump VM with ports
-   8088 and 8087 forwarded — which is what Microsoft's own guidance prescribes for a
-   VNet-only Foundry endpoint.
+Injection is set at account creation and cannot be added later, so changing it replaces
+the account. `random_id.foundry` carries a `keepers` entry for exactly this: without a
+new suffix the replacement collides with the name the soft-deleted account still holds
+for 48 hours. On any future rebuild, delete the capability host before the account and
+purge the account afterwards, or the delegated subnet stays linked and the next apply
+fails with "Subnet already in use".
+
+APIM remains in **External** VNet mode: inbound public, outbound in the VNet so the
+platform Foundry account is only ever reached privately. Now that agent egress is in the
+VNet, moving APIM to Internal (or to Standard v2 with an inbound private endpoint) would
+close the last public ingress that carries model traffic — worthwhile follow-on work,
+but it means re-provisioning APIM and rotating the gateway URL and subscription key.
 
 ### Hosted agent (`app/`)
 
@@ -216,14 +223,59 @@ Two identities are involved and they are easy to confuse:
   a principal that doesn't exist until deploy time, so `agentdeploy.yml` grants it
   after `azd deploy`. It is stable across agent versions.
 
-### Developer access for local `azd` runs
+### Developer access
 
-`azd ai agent run` / `invoke --local` runs the agent process on the workstation but
-still calls the Foundry data plane. `config/lz01.tfvars` carries `allowed_ips`, an IP
-allowlist applied to AI Search (`search.tf`) and the App Service (`appservice.tf`).
-Update it when your public IP changes. The workload Foundry account keeps the same
-list but its `default_action` is `Allow` — see `foundry.tf` for why hosted agents
-force that — so the list is currently inert there.
+**`azd ai agent run` must run on the jump VM, not a workstation.** It runs the agent
+process locally but still calls the Foundry data plane, which has no public inbound
+since the account was network-injected.
+
+The jump host is set up for this: `uv` installed, a checkout at `~/azure-caf` (separate
+from the runner's workspace, which every deploy wipes), and an azd environment called
+`jumpdev` holding the project endpoint, model names and Search settings. The VM's
+system-assigned identity has `Foundry Project Manager` on the account (`roles.tf`), so
+`DefaultAzureCredential` authenticates over IMDS — no `az login`, no credentials on disk.
+
+A `Host azure-jump` entry with the port forwards belongs in `~/.ssh/config`:
+
+```
+Host azure-jump
+  HostName <jump-host-public-ip>
+  User azureuser
+  IdentityFile ~/.ssh/id_ed25519
+  LocalForward 8088 localhost:8088
+  LocalForward 8087 localhost:8087
+```
+
+Then:
+
+```bash
+ssh azure-jump                       # terminal 1 — keeps the forwards open
+cd ~/azure-caf/app && git pull && azd ai agent run
+
+# terminal 2, on the workstation — 8088 is forwarded, so this reaches the VM
+curl -X POST http://localhost:8088/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input":"hello","stream":false}'
+```
+
+If the forward fails with `bind: Address already in use`, something local already holds
+the port — usually an `azure-ai-inspector` left over from an earlier workstation run.
+
+Remember the NSG rule in `infra/hub/vm.tf` gates SSH by source IP. A stale value there
+now blocks local development entirely, not just SSH.
+
+`config/lz01.tfvars` still carries `allowed_ips`, but it now applies **only** to the App
+Service (`appservice.tf`) — that is what lets the UI open in a browser. Update it when
+your public IP changes. The Foundry account, ACR and AI Search are all private-endpoint
+only and ignore it.
+
+Quickest end-to-end check from a workstation is the UI, which exercises the whole
+private chain from outside it:
+
+```bash
+curl -s -X POST "https://<app>.azurewebsites.net/chat" \
+  -H "Content-Type: application/json" -d '{"message":"hello"}'
+```
 
 **Changes to a Cognitive Services ACL take minutes to reach the data plane, and it
 serves the old state meanwhile.** This makes network troubleshooting actively

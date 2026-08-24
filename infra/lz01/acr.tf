@@ -6,11 +6,14 @@ resource "azurerm_container_registry" "main" {
   name                          = "acr${random_id.acr.hex}"
   location                      = module.lz_data.rg.location
   resource_group_name           = module.lz_data.rg.name
-  sku                           = "Premium"
-  admin_enabled                 = false
-  # Public access required: the Foundry hosted agent platform pulls images
-  # from Azure-managed infrastructure outside our VNet.
-  public_network_access_enabled = true
+  sku           = "Premium"
+  admin_enabled = false
+
+  # Reachable only through the private endpoint below. This became possible once the
+  # Foundry account was network-injected: the agent build and pull now run inside the
+  # VNet instead of on Azure-managed infrastructure outside it. The App Service reaches
+  # it through vnet_image_pull_enabled.
+  public_network_access_enabled = false
 }
 
 data "azurerm_private_dns_zone" "acr" {
