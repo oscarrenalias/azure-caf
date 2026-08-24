@@ -34,7 +34,8 @@ subnets = [
 # Take this from the deployed APIM: az apim list -g rg<number>-lz-platform --query "[0].name" -o tsv
 apim_gateway_url = "https://apim<hex>.azure-api.net/openai"
 
-# Developer IPs — gates the App Service (browser access to the UI) and AI Search.
+# Developer IPs — gates the App Service only, i.e. browser access to the UI. The
+# Foundry account, ACR and AI Search are private-endpoint only.
 allowed_ips = ["<developer-public-ip>"]
 ```
 

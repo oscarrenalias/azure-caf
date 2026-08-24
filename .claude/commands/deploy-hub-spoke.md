@@ -192,8 +192,8 @@ Set `apim_gateway_url` in `config/lz01.tfvars` to the URL printed above. The wor
 passes the secret to Terraform as `TF_VAR_apim_subscription_key`.
 
 Also set `allowed_ips` in `config/lz01.tfvars` to the developer's public IP. It gates
-the App Service (so the UI opens in a browser) and AI Search (so the RAG tool works
-during local `azd ai agent run`):
+the App Service only — how the UI is opened in a browser. The Foundry account, ACR and
+AI Search are private-endpoint only, so nothing else uses it:
 
 ```bash
 echo "allowed_ips = [\"$(curl -s ifconfig.me)\"]"

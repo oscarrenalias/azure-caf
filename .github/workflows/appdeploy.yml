@@ -89,20 +89,18 @@ jobs:
             ${{ env.ACR_LOGIN_SERVER }}/rag-ui:latest
           docker push ${{ env.ACR_LOGIN_SERVER }}/rag-ui:latest
 
+      # Point the site at the new tag only. No registry credentials: ACR has
+      # admin_enabled = false, and the App Service pulls with its managed identity
+      # (container_registry_use_managed_identity in appservice.tf) through the VNet
+      # (vnet_image_pull_enabled) to ACR's private endpoint. Passing credentials here
+      # would both fail — admin is off — and override the identity-based pull.
       - name: Configure container
         run: |
-          ACR_USER=$(az acr credential show --name ${{ env.ACR_NAME }} \
-            --query "username" -o tsv)
-          ACR_PASS=$(az acr credential show --name ${{ env.ACR_NAME }} \
-            --query "passwords[0].value" -o tsv)
-
           az webapp config container set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ github.event.inputs.appservice }} \
             --container-image-name ${{ env.ACR_LOGIN_SERVER }}/rag-ui:${{ env.IMAGE_TAG }} \
-            --container-registry-url https://${{ env.ACR_LOGIN_SERVER }} \
-            --container-registry-user "${ACR_USER}" \
-            --container-registry-password "${ACR_PASS}"
+            --container-registry-url https://${{ env.ACR_LOGIN_SERVER }}
 
           az webapp config appsettings set \
             --resource-group ${{ env.RESOURCE_GROUP }} \
