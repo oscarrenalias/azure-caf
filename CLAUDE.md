@@ -217,16 +217,26 @@ Two identities are involved and they are easy to confuse:
 ### Developer access for local `azd` runs
 
 `azd ai agent run` / `invoke --local` runs the agent process on the workstation but
-still calls the Foundry data plane, so `config/lz01.tfvars` carries `allowed_ips`,
-an IP allowlist applied to the workload Foundry account (`foundry.tf`) and to AI
-Search (`search.tf`). Update it when your public IP changes.
+still calls the Foundry data plane. `config/lz01.tfvars` carries `allowed_ips`, an IP
+allowlist applied to AI Search (`search.tf`) and the App Service (`appservice.tf`).
+Update it when your public IP changes. The workload Foundry account keeps the same
+list but its `default_action` is `Allow` — see `foundry.tf` for why hosted agents
+force that — so the list is currently inert there.
 
-Note that a Cognitive Services account can serve stale network config: after
-flipping `publicNetworkAccess` or the ACL, the data plane may keep answering
-`403 Public access is disabled. Please configure private endpoint.` (look for
-`policy-id: ThrowExceptionDueToTrafficDenied` on the response) even though ARM
-reports the new values. Toggling `publicNetworkAccess` Disabled → Enabled forces the
-data plane to pick them up.
+**Changes to a Cognitive Services ACL take minutes to reach the data plane, and it
+serves the old state meanwhile.** This makes network troubleshooting actively
+misleading in both directions:
+
+- After tightening, calls keep succeeding for a while. A permissive setting tested
+  immediately after a stricter one can look like it works when it does not — this is
+  how `bypass = "AzureServices"` was wrongly recorded as sufficient for hosted agents.
+- After loosening, calls keep failing with
+  `403 Public access is disabled. Please configure private endpoint.` (look for
+  `policy-id: ThrowExceptionDueToTrafficDenied`) even though ARM reports the new
+  values. Toggling `publicNetworkAccess` Disabled → Enabled forces a refresh.
+
+Wait several minutes before drawing a conclusion, and re-test from a cold state
+rather than immediately after changing the setting you are testing.
 
 ## Adding a new landing zone
 

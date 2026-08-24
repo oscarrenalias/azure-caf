@@ -14,17 +14,27 @@ resource "azurerm_cognitive_account" "foundry_hub" {
   public_network_access_enabled = true
   project_management_enabled    = true
 
-  # Deny by default, with two exceptions:
-  #  - allowed_ips: developer workstations, for local `azd ai agent run`
-  #  - bypass AzureServices: required by the Agent Service platform itself. A hosted
-  #    agent's request is orchestrated platform-side (FoundryStorageProvider writes
-  #    the response before the container is invoked) from Microsoft-managed compute
-  #    outside this VNet, so without the bypass every hosted invocation fails with a
-  #    500 that never reaches the container. Verified: with the bypass a hosted
-  #    invoke completes; without it, the container logs show no inbound request.
+  # default_action must be Allow for hosted agents to work at all.
+  #
+  # A hosted agent's request is orchestrated platform-side — FoundryStorageProvider
+  # writes the response before the container is invoked — from Microsoft-managed
+  # compute outside this VNet, on egress IPs Azure does not publish. With Deny, every
+  # hosted invocation fails with a 500 that never reaches the container; the session
+  # log shows the container healthy and serving /readiness with no inbound request.
+  #
+  # bypass = "AzureServices" does NOT cover that path. It appeared to work when first
+  # tested, but only because the data plane was still serving a permissive state set
+  # moments earlier — retested after a 5 minute propagation wait, Deny + bypass fails
+  # consistently while Allow succeeds on the first attempt.
+  #
+  # The endpoint remains Entra-authenticated and RBAC-gated, and in-VNet callers (the
+  # App Service) reach it over the private endpoint below. Closing it properly
+  # requires network injection — see "AI Gateway network posture" in CLAUDE.md.
+  #
+  # ip_rules are inert while default_action is Allow; they are kept so the allowlist
+  # is already in place if this returns to Deny once the agent runs inside the VNet.
   network_acls {
-    default_action = "Deny"
-    bypass         = "AzureServices"
+    default_action = "Allow"
     ip_rules       = var.allowed_ips
   }
 
