@@ -86,12 +86,18 @@ resource "azurerm_subnet_network_security_group_association" "apim" {
 # Developer_1 SKU, External VNet mode. Expect 30-45 minutes to provision, and a
 # similar wait when the VNet type changes.
 #
-# External (not Internal) because the gateway must be reachable by the AI Foundry
-# inference service in the workload LZs: Internal mode publishes no public DNS
-# record for <name>.azure-api.net, and Foundry's connected-mode model calls
-# originate from Microsoft-managed compute outside this VNet. Backend traffic is
-# unaffected — APIM stays VNet-injected and reaches the AI Foundry account below
-# over its private endpoint.
+# External was originally required because connected-mode model calls came from
+# Microsoft-managed compute outside the VNet, and Internal mode publishes no public DNS
+# record for <name>.azure-api.net. That reason no longer holds: the workload Foundry
+# account is network-injected, so agent compute runs inside the VNet.
+#
+# Whether Internal works now is untested — see ROADMAP.md. It would also need the
+# azure-api.net private DNS zone restored in the hub (removed deliberately, because a
+# linked zone with no private IP to point at shadows the gateway's public name), and a
+# VNet-type change forces a new public IP plus gateway downtime.
+#
+# Backend traffic is private either way: APIM stays VNet-injected and reaches the AI
+# Foundry account below over its private endpoint.
 resource "azurerm_api_management" "main" {
   name                = "apim${random_id.apim.hex}"
   location            = module.lz_data.rg.location
