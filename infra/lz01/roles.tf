@@ -19,11 +19,6 @@ resource "azurerm_role_assignment" "github_actions_foundry_manager" {
   principal_id         = data.azurerm_user_assigned_identity.github_actions.principal_id
 }
 
-import {
-  to = azurerm_role_assignment.appservice_ai_developer
-  id = "/subscriptions/05b45b16-d05c-4322-8af3-5c839cedae36/resourceGroups/rg17872182643090-lz01/providers/Microsoft.CognitiveServices/accounts/hub45c2224c22f5/providers/Microsoft.Authorization/roleAssignments/25be65c5-544a-4eda-8edb-a3a15870b3af"
-}
-
 # App Service managed identity → Foundry Project Manager on the Foundry Hub.
 # Azure AI Developer is insufficient to invoke hosted agent responses endpoints;
 # Foundry Project Manager includes the broader data-plane actions needed.
