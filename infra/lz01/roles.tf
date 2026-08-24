@@ -34,6 +34,23 @@ resource "azurerm_role_assignment" "jump_vm_foundry_manager" {
   principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
 }
 
+# AI Search identity → read the book content it indexes. The storage account has
+# shared_access_key_enabled = false, so the indexer's data source authenticates as this
+# identity rather than with a key.
+resource "azurerm_role_assignment" "search_storage_reader" {
+  scope                = azurerm_storage_account.content.id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = azurerm_search_service.main.identity[0].principal_id
+}
+
+# AI Search identity → call the embedding model for integrated vectorization, both when
+# indexing (the embedding skill) and at query time (the index's vectorizer).
+resource "azurerm_role_assignment" "search_openai_user" {
+  scope                = data.azurerm_cognitive_account.platform_foundry.id
+  role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = azurerm_search_service.main.identity[0].principal_id
+}
+
 # App Service managed identity → Foundry Project Manager on the Foundry Hub.
 # Azure AI Developer is insufficient to invoke hosted agent responses endpoints;
 # Foundry Project Manager includes the broader data-plane actions needed.

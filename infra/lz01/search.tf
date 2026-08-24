@@ -42,6 +42,33 @@ resource "azurerm_private_endpoint" "search" {
   }
 }
 
+# Shared private links are Search's *outbound* private connectivity: the service is
+# itself private-endpoint only, and its indexer and vectorizer still have to reach two
+# resources that are also private. Each creates a private endpoint connection on the
+# target that must be approved before it leaves the "Pending" state.
+#
+# Group ids are case-sensitive: "blob" for storage, "openai_account" for a Cognitive
+# Services account used as an embedding model.
+
+resource "azurerm_search_shared_private_link_service" "storage" {
+  name               = "spl-blob"
+  search_service_id  = azurerm_search_service.main.id
+  subresource_name   = "blob"
+  target_resource_id = azurerm_storage_account.content.id
+  request_message    = "AI Search indexer reading book content"
+}
+
+# The embedding model lives in the platform landing zone and is private-endpoint only,
+# so integrated vectorization — both the indexing skill and the query-time vectorizer —
+# needs this link. Note this traffic does not pass through the APIM gateway.
+resource "azurerm_search_shared_private_link_service" "openai" {
+  name               = "spl-openai"
+  search_service_id  = azurerm_search_service.main.id
+  subresource_name   = "openai_account"
+  target_resource_id = data.azurerm_cognitive_account.platform_foundry.id
+  request_message    = "AI Search integrated vectorization"
+}
+
 output "search_endpoint" {
   value = "https://${azurerm_search_service.main.name}.search.windows.net"
 }

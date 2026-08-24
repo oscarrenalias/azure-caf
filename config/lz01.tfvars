@@ -14,3 +14,8 @@ subnets = [
 apim_gateway_url = "https://apim060260e4.azure-api.net/openai"
 allowed_ips      = ["185.57.5.91"]
 
+
+# Shared AI Foundry account in the platform LZ. AI Search vectorizes against its
+# embedding deployment over a shared private link (see infra/lz01/search.tf).
+#   az cognitiveservices account list -g rg<number>-lz-platform --query "[?starts_with(name,'aif')].name | [0]" -o tsv
+platform_foundry_name = "aifa6f305b532de"

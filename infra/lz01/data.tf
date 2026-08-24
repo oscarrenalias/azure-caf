@@ -23,6 +23,19 @@ variable "allowed_ips" {
   default     = []
 }
 
+variable "platform_foundry_name" {
+  type        = string
+  description = "Name of the shared AI Foundry account in the platform LZ (aif<hex>), which hosts the embedding model AI Search vectorizes with"
+  default     = ""
+}
+
+# The embedding deployment used by integrated vectorization. Lives in the platform LZ,
+# so lz01 only needs its name — the resource group follows the naming convention.
+data "azurerm_cognitive_account" "platform_foundry" {
+  name                = var.platform_foundry_name
+  resource_group_name = "rg${var.number}-lz-platform"
+}
+
 module "lz_data" {
   source = "../modules/lz-data"
   number = var.number
