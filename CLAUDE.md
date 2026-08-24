@@ -39,10 +39,12 @@ config/
   hub.tfvars    Hub-specific networks, peerings, subnets
   lz01.tfvars   lz01-specific subnets
   hub.env / lz01.env  Per-env GitHub Actions env overrides
-app1/           Flask placeholder app ("Hello World"), deployed to lz01 App Service
+app/            azd project: ui/ (FastAPI chat UI on App Service) and agent/ (LangGraph
+                agent on Foundry Agent Service). See "Hosted agent (app/)" below.
 .github/workflows/
-  terraform.yml  Terraform plan/apply/destroy — runs on ubuntu-latest
-  appdeploy.yml  App deploy to App Service — runs on self-hosted runner (jump VM)
+  terraform.yml   Terraform plan/apply/destroy — runs on ubuntu-latest
+  appdeploy.yml   UI container build + App Service deploy — self-hosted runner (jump VM)
+  agentdeploy.yml Hosted agent deploy via azd — self-hosted runner (jump VM)
 bootstrap.sh    One-time setup: storage account, managed identity, OIDC federated credential
 ```
 
@@ -105,7 +107,7 @@ Inputs:
 - `environment`: `lz01` (or `lz02`)
 - `appservice`: the App Service name (find it in the portal or from Terraform state, e.g. `app<hex>`)
 
-Runs on the **self-hosted runner** (the hub jump VM) because the App Service has no public network access and must be reached via private endpoint. Packages `app1/` as a zip and deploys with `az webapp deploy`.
+Runs on the **self-hosted runner** (the hub jump VM), which has the VNet access and Docker needed to build and push. Builds `app/ui/Dockerfile`, pushes it to the landing zone's ACR, and points the App Service at the new tag. The App Service pulls with its own managed identity — ACR has `admin_enabled = false`, so registry credentials in app settings cannot work.
 
 ## Verifying deployment
 
