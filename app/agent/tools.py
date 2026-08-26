@@ -1,4 +1,4 @@
-"""RAG tool: hybrid (keyword + vector) search over the AI Search knowledge base."""
+"""RAG tool: hybrid (keyword + vector) search over the indexed books."""
 
 from __future__ import annotations
 
@@ -9,27 +9,13 @@ from typing import Annotated
 
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizedQuery
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
+from azure.search.documents.models import VectorizableTextQuery
 from langchain_core.tools import tool
 
 logger = logging.getLogger("rag-agent.tools")
 
 _INDEX_NAME = "knowledge-base"
-_EMBEDDING_MODEL = os.environ.get(
-    "AZURE_AI_EMBEDDING_DEPLOYMENT_NAME", "apim-gateway/text-embedding-3-small"
-)
 _TOP_K = 5
-
-
-@lru_cache(maxsize=1)
-def _openai_client():
-    project = AIProjectClient(
-        endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
-        credential=DefaultAzureCredential(),
-    )
-    return project.get_openai_client()
 
 
 @lru_cache(maxsize=1)
@@ -41,37 +27,39 @@ def _search_client() -> SearchClient:
     )
 
 
-def _embed(text: str) -> list[float]:
-    resp = _openai_client().embeddings.create(input=text, model=_EMBEDDING_MODEL)
-    return resp.data[0].embedding
-
-
 @tool
 def search_knowledge_base(
-    query: Annotated[str, "The question or topic to look up in the knowledge base."],
+    query: Annotated[str, "The question or topic to look up in the books."],
 ) -> str:
-    """Search the knowledge base for relevant information using hybrid search.
+    """Search the works of Homer — the Iliad and the Odyssey — for relevant passages.
 
-    Use this tool whenever the user asks about Azure AI Foundry, Azure AI Search,
-    LangChain, LangGraph, or any topic that may be covered in the knowledge base.
+    Use this whenever the user asks about the events, characters, places or language of
+    either poem. Each result names the book it came from, so quote that when answering.
     """
     try:
-        vector_query = VectorizedQuery(
-            vector=_embed(query),
+        # Hybrid: BM25 over `search_text` fused with vector similarity. The vector is
+        # produced by the index's own vectorizer — the agent sends text, Azure AI Search
+        # embeds it with the same model used at indexing time. That is deliberate: it
+        # keeps one embedding configuration rather than two that can silently diverge,
+        # and it means this container needs no model credentials at all.
+        vector_query = VectorizableTextQuery(
+            text=query,
             k_nearest_neighbors=_TOP_K,
-            fields="embedding",
+            fields="vector",
         )
         results = _search_client().search(
             search_text=query,
             vector_queries=[vector_query],
-            select=["title", "content", "source"],
+            select=["chunk", "chapter", "title", "author", "translator"],
             top=_TOP_K,
         )
-        chunks = [
-            f"**{r['title']}** (source: {r['source']})\n{r['content']}"
-            for r in results
-        ]
-        return "\n\n---\n\n".join(chunks) if chunks else "No relevant documents found."
+
+        passages = []
+        for r in results:
+            citation = f"{r.get('title')}, {r.get('chapter')}"
+            passages.append(f"**{citation}**\n{r.get('chunk', '').strip()}")
+
+        return "\n\n---\n\n".join(passages) if passages else "No relevant passages found."
     except Exception as exc:
         # Returned as text so the agent can keep going, but log it too: a network
         # or auth failure here otherwise looks identical to "no documents found".
