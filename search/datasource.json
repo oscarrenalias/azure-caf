@@ -3,7 +3,7 @@
   "type": "azureblob",
   "description": "Markdown converted from the epubs in content/, uploaded by tools/upload_content.py",
   "credentials": {
-    "connectionString": "ResourceId=__STORAGE_ACCOUNT_ID__;"
+    "connectionString": "ResourceId=__STORAGE_ACCOUNT_ID__/;"
   },
   "container": { "name": "books" }
 }
