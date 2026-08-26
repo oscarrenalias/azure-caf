@@ -1,0 +1,78 @@
+{
+  "name": "knowledge-base",
+  "fields": [
+    {
+      "name": "chunk_id",
+      "type": "Edm.String",
+      "key": true,
+      "filterable": true,
+      "sortable": true,
+      "analyzer": "keyword"
+    },
+    {
+      "name": "parent_id",
+      "type": "Edm.String",
+      "filterable": true,
+      "comment": "The blob a chunk came from. Index projections populate this, and it is how all chunks of one book are deleted before a re-index."
+    },
+    { "name": "chunk", "type": "Edm.String", "searchable": true },
+    {
+      "name": "chapter",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "facetable": true,
+      "comment": "From the markdown h2 heading, e.g. 'Book IX: The Embassy to Achilles'. This is what lets the agent cite a source."
+    },
+    { "name": "ordinal_position", "type": "Edm.Int32", "filterable": true, "sortable": true },
+
+    { "name": "title", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true },
+    { "name": "author", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true },
+    { "name": "translator", "type": "Edm.String", "filterable": true },
+    { "name": "year", "type": "Edm.String", "filterable": true },
+    { "name": "language", "type": "Edm.String", "filterable": true },
+
+    {
+      "name": "vector",
+      "type": "Collection(Edm.Single)",
+      "searchable": true,
+      "retrievable": false,
+      "stored": false,
+      "dimensions": 1536,
+      "vectorSearchProfile": "books-profile"
+    }
+  ],
+  "vectorSearch": {
+    "algorithms": [{ "name": "books-hnsw", "kind": "hnsw" }],
+    "profiles": [
+      {
+        "name": "books-profile",
+        "algorithm": "books-hnsw",
+        "vectorizer": "books-vectorizer"
+      }
+    ],
+    "vectorizers": [
+      {
+        "name": "books-vectorizer",
+        "kind": "azureOpenAI",
+        "parameters": {
+          "resourceUri": "__OPENAI_URI__",
+          "deploymentId": "text-embedding-3-small",
+          "modelName": "text-embedding-3-small"
+        }
+      }
+    ]
+  },
+  "semantic": {
+    "configurations": [
+      {
+        "name": "books-semantic",
+        "prioritizedFields": {
+          "titleField": { "fieldName": "chapter" },
+          "prioritizedContentFields": [{ "fieldName": "chunk" }],
+          "prioritizedKeywordsFields": [{ "fieldName": "title" }]
+        }
+      }
+    ]
+  }
+}

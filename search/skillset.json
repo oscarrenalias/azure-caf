@@ -1,0 +1,49 @@
+{
+  "name": "books-skillset",
+  "description": "Split each chapter into overlapping passages and embed them (integrated vectorization)",
+  "skills": [
+    {
+      "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+      "name": "split",
+      "description": "Markdown parsing gives one document per chapter, which is far too large to embed as a single vector",
+      "context": "/document",
+      "textSplitMode": "pages",
+      "maximumPageLength": 2000,
+      "pageOverlapLength": 200,
+      "inputs": [{ "name": "text", "source": "/document/content" }],
+      "outputs": [{ "name": "textItems", "targetName": "pages" }]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+      "name": "embed",
+      "description": "Reaches the platform LZ model over the shared private link; authenticates as the search service identity",
+      "context": "/document/pages/*",
+      "resourceUri": "__OPENAI_URI__",
+      "deploymentId": "text-embedding-3-small",
+      "modelName": "text-embedding-3-small",
+      "inputs": [{ "name": "text", "source": "/document/pages/*" }],
+      "outputs": [{ "name": "embedding", "targetName": "vector" }]
+    }
+  ],
+  "indexProjections": {
+    "selectors": [
+      {
+        "targetIndexName": "knowledge-base",
+        "parentKeyFieldName": "parent_id",
+        "sourceContext": "/document/pages/*",
+        "mappings": [
+          { "name": "chunk", "source": "/document/pages/*" },
+          { "name": "vector", "source": "/document/pages/*/vector" },
+          { "name": "chapter", "source": "/document/sections/h2" },
+          { "name": "ordinal_position", "source": "/document/ordinal_position" },
+          { "name": "title", "source": "/document/title" },
+          { "name": "author", "source": "/document/author" },
+          { "name": "translator", "source": "/document/translator" },
+          { "name": "year", "source": "/document/year" },
+          { "name": "language", "source": "/document/language" }
+        ]
+      }
+    ],
+    "parameters": { "projectionMode": "skipIndexingParentDocuments" }
+  }
+}
