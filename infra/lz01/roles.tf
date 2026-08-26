@@ -34,6 +34,15 @@ resource "azurerm_role_assignment" "jump_vm_foundry_manager" {
   principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
 }
 
+# Jump VM identity → upload content to the container. The storage account is
+# private-endpoint only and has shared keys disabled, so ingestion runs from inside the
+# VNet with `az storage blob upload --auth-mode login`, authenticating as this identity.
+resource "azurerm_role_assignment" "jump_vm_storage_contributor" {
+  scope                = azapi_resource.content.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
+}
+
 # AI Search identity → read the book content it indexes. The storage account has
 # shared_access_key_enabled = false, so the indexer's data source authenticates as this
 # identity rather than with a key.
