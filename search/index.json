@@ -89,7 +89,7 @@
       {
         "name": "books-vectorizer",
         "kind": "azureOpenAI",
-        "parameters": {
+        "azureOpenAIParameters": {
           "resourceUri": "__OPENAI_URI__",
           "deploymentId": "text-embedding-3-small",
           "modelName": "text-embedding-3-small"
