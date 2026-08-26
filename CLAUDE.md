@@ -6,7 +6,7 @@ Hub-and-spoke Azure landing zone, purpose-built for deploying agentic applicatio
 
 ```
 Hub VNet (10.0.0.0/16)
-  ├── AzureFirewallSubnet (10.0.1.0/24) — Azure Firewall (Standard), central egress
+  ├── AzureFirewallSubnet (10.0.1.0/24) — reserved; firewall off by default (see below)
   ├── vm subnet (10.0.0.0/24)           — jump host / GitHub Actions self-hosted runner
   └── VNet peerings → lz01, lz02
 
@@ -29,7 +29,7 @@ Private DNS zones live in the hub resource group and are linked to every VNet:
 
 ```
 infra/
-  hub/          Terraform: all VNets, peerings, firewall, route table, jump VM, DNS zones
+  hub/          Terraform: all VNets, peerings, jump VM, DNS zones, optional firewall
   lz01/         Terraform: lz01 subnets, App Service, AI Foundry, private endpoints
   modules/
     lz-data/    Data-source module — resolves hub RG + VNet by name for a given lz
@@ -100,7 +100,7 @@ Inputs:
 The workflow merges `config/global.tfvars` + `config/<env>.tfvars` into `infra/<env>/value.auto.tfvars` and similarly for `.env` files. Terraform state is stored per-environment as `<env>.tfstate` in the Azure Blob backend.
 
 **Deployment order:**
-1. Run `apply` for `hub` — creates VNets, peerings, firewall, jump VM, DNS zones. The jump VM installs the GitHub Actions runner on first boot via `cloud-init`.
+1. Run `apply` for `hub` — creates VNets, peerings, jump VM, DNS zones (firewall only if `enable_firewall = true`). The jump VM installs the GitHub Actions runner on first boot via `cloud-init`.
 2. Run `apply` for `lz01` — creates subnets (using hub VNet/RG via `lz-data`), App Service, AI Foundry, private endpoints.
 
 ### `appdeploy.yml`
@@ -317,7 +317,8 @@ Four skills are available in `.claude/commands/` to automate the most common wor
 | add-landing-zone | `/add-landing-zone` | Adding a new LZ (lz02, lz03, …) to the existing hub |
 | deploy-app | `/deploy-app` | Deploying or updating an app on an existing landing zone's App Service |
 | teardown | `/teardown` | Destroying resources in safe reverse order (LZs first, hub last) |
-| pause-resume | `/pause-resume` | Pause (destroy firewall + deallocate VM, saves ~$1.25/hr) or resume (recreate firewall + start VM, ~10 min) |
+| pause-resume | `/pause-resume` | Pause (deallocate the VM, and the firewall if enabled) or resume |
+| jump-host | `/jump-host` | Check, start or repair the jump VM on its own — runner host and the only place `azd ai agent run` works |
 
 ### `/deploy-hub-spoke`
 

@@ -1,0 +1,19 @@
+{
+  "name": "books-indexer",
+  "dataSourceName": "books-datasource",
+  "targetIndexName": "knowledge-base",
+  "skillsetName": "books-skillset",
+  "parameters": {
+    "batchSize": 1,
+    "maxFailedItems": 0,
+    "configuration": {
+      "parsingMode": "markdown",
+      "markdownParsingSubmode": "oneToMany",
+      "markdownHeaderDepth": "h2",
+      "dataToExtract": "contentAndMetadata",
+      "executionEnvironment": "private"
+    }
+  },
+  "fieldMappings": [],
+  "outputFieldMappings": []
+}

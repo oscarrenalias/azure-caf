@@ -80,6 +80,7 @@ variable "dnszones" {
     # gateway's public name instead of resolving it. When APIM moves to Standard v2
     # with an inbound private endpoint, the zone to add is privatelink.azure-api.net.
     { name = "privatelink.search.windows.net" },
+    { name = "privatelink.blob.core.windows.net" },
     { name = "privatelink.api.azureml.ms" },
     { name = "privatelink.azurecr.io" },
   ]

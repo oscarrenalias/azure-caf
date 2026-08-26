@@ -4,3 +4,10 @@
 *.tfstate
 *.tfstate.*
 .claude/settings.local.json
+
+# Source epubs are discarded — only the converted markdown is tracked (see tools/epub2md.py)
+content/*.epub
+
+# Provider lock files: generated locally on darwin_arm64, which would break init on
+# the linux runners. Regenerated per environment by each terraform init.
+**/.terraform.lock.hcl

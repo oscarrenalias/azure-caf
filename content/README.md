@@ -1,0 +1,1 @@
+This is content for the RAG. Will be uploaded and indexed by the application.

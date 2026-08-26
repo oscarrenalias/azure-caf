@@ -1,0 +1,20 @@
+[
+  {
+    "title": "The Iliad",
+    "author": "Homer",
+    "translator": "William Cullen Bryant",
+    "year": "2020",
+    "language": "en-US",
+    "chapters": "24",
+    "file": "the-iliad.md"
+  },
+  {
+    "title": "The Odyssey",
+    "author": "Homer",
+    "translator": "William Cullen Bryant",
+    "year": "2020",
+    "language": "en-US",
+    "chapters": "24",
+    "file": "the-odyssey.md"
+  }
+]

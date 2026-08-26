@@ -3,31 +3,52 @@
 Open work, roughly in the order it makes sense to tackle it. Each item says why it
 exists and how you would know it worked.
 
-## Next feature: RAG over AI Search
+## RAG over the books — done, with quality follow-ups
 
-The agent already has a `search_knowledge_base` tool (`app/agent/tools.py`), but the
-retrieval path has never worked end to end. Three separate gaps:
+The pipeline is live: `tools/epub2md.py` converts the epubs to markdown with one h2
+heading per chapter, `tools/upload_content.py` uploads them with work metadata, and the
+definitions in `search/` drive a blob indexer with integrated vectorization — markdown
+`oneToMany` parsing, a Split skill, an embedding skill, and index projections producing
+**873 chunks across 48 chapters**, each carrying its work, chapter, author and translator.
+The agent queries with `VectorizableTextQuery`, so the index vectorizes the question and
+the container holds no model credentials. Retrieval is hybrid (BM25 fused with vector
+similarity by RRF) followed by semantic reranking.
 
-1. **No index exists.** `search.tf` creates the service only; the service currently holds
-   zero indexes and zero documents. Nothing in the repo defines the `knowledge-base`
-   index the tool queries (`embedding` vector field plus `title`, `content`, `source`).
-2. **No ingestion.** No script anywhere parses documents, chunks them, embeds them or
-   uploads them.
-3. **Embeddings 404.** `tools.py` embeds through the project's OpenAI client, which
-   resolves to `.../openai/v1/embeddings` — a route the project data plane does not
-   serve. Chat works through connected mode; embeddings do not. The fix is to call the
-   APIM gateway directly for embeddings
-   (`AzureOpenAI(azure_endpoint=<gateway>/openai, api_key=<APIM key>)`), which is the
-   pattern workload apps are meant to use anyway. Verified working: 1536 dimensions from
-   `text-embedding-3-small` through the gateway.
+Four constraints cost real time and are worth remembering, because each presented as a
+different problem than it was:
 
-Note that AI Search is now private-endpoint only, so **ingestion has to run inside the
-VNet** — the jump host, or a workflow on the self-hosted runner. The hosted agent can
-reach Search over the private endpoint now that it is network-injected, so hosted RAG
-will work once the index exists.
+- **Same-region storage cannot use a shared private link.** It needs a resource instance
+  rule on the storage firewall, which requires the public endpoint present but denied by
+  default. Symptom: "Credentials provided in the connection string are invalid or have
+  expired", which points at auth.
+- **Skillsets run in a multitenant environment by default**, where private endpoint
+  connections do not work. Symptom: the embedding skill getting `403 Public access is
+  disabled` while the data source connection on the same indexer succeeded. Fix:
+  `executionEnvironment: private`.
+- The vectorizer config key is `azureOpenAIParameters`, not `parameters`.
+- The managed-identity connection string needs a trailing slash before the semicolon.
 
-Content for the first pass: two public-domain epubs. Decide whether they live in a
-gitignored `data/`, get committed, or are fetched by URL at ingest time.
+### Quality follow-ups
+
+- **Grounding is not enforced.** On a corpus this famous, the model blends its own
+  knowledge with the retrieved passages: asked to quote the Iliad's opening it produced a
+  line from a different translation, not the Bryant text in the index. Worth raising
+  `_TOP_K`, instructing it to answer only from the passages and quote verbatim, and
+  considering whether to surface the retrieved text in the UI so drift is visible.
+- **No work filter.** `title` is filterable in the index but the tool never uses it, so a
+  question about the Odyssey can retrieve Iliad passages. Exposing a filter argument on
+  the tool would let the agent scope a search.
+- **Chunking is untuned.** 2000 characters with 200 of overlap was a starting point, never
+  compared against alternatives. Broad questions retrieve five chunks and fall back on
+  model knowledge.
+- **Stale documents on re-index.** In `oneToMany` mode, removing sections leaves orphaned
+  documents behind; delete a blob's documents before re-running if the markdown changes
+  shape.
+- **Dead app settings.** `infra/lz01/appservice.tf` sets `SEARCH_ENDPOINT` and
+  `SEARCH_API_KEY` on the App Service, which the UI has never read — the agent does the
+  retrieval. Worth removing, not least because it puts a search key where nothing uses it.
+- **No ingestion runbook.** `docs/` should carry the convert → upload → apply → run
+  sequence, including that all of it happens from the jump host.
 
 ## Open questions to settle
 
@@ -96,6 +117,34 @@ not, the step stays and now has a reason.
   `mihubspoke<number>` identity — `github-feature-lz-platform` and
   `github-feature-foundry-vnet-injection` are both merged and can go. Consider a wildcard
   subject or a `pull_request` credential instead of one per branch.
+
+## Egress after removing the firewall
+
+Azure Firewall is gone and `enable_firewall` defaults to off — it cost ~$900/month against
+a ~$150 monthly credit and exhausted it in about five days, disabling the subscription and
+stopping every resource. As configured it filtered nothing (any source, any destination,
+443 and 53), so what was lost is the hub-and-spoke *pattern* of central egress, not a
+control.
+
+Routed subnets now rely on **Azure's default outbound access**. That works today — all
+three report `defaultOutboundAccess: true`, and a `/chat` call through the whole chain was
+verified after removal — but it has two weaknesses:
+
+- **No stable egress IP.** Azure assigns them, so nothing downstream can allowlist us. If
+  APIM ever moved back to Internal mode, or a third party needed an IP allowlist, this
+  would block it.
+- **Microsoft is retiring implicit outbound access** for newly created subnets. Existing
+  subnets keep it, but a rebuild of the VNets would land on the new behaviour and leave
+  the injected agent subnet with no route to APIM.
+
+A **NAT Gateway** (~$0.045/hour, about $33/month plus data) is the durable answer: explicit
+outbound, a stable IP, and roughly 4% of the firewall's cost. It is plumbing rather than a
+firewall — no inspection or filtering — so re-enabling `enable_firewall` remains the option
+if the demo needs to show egress control.
+
+Worth doing before either the VNets are rebuilt or anything needs to allowlist this
+environment. Until then, be aware that `enable_firewall = true` must be applied to the hub
+*before* the landing zones, and removed from the landing zones *before* the hub.
 
 ## Deferred
 
