@@ -10,7 +10,8 @@
       "parsingMode": "markdown",
       "markdownParsingSubmode": "oneToMany",
       "markdownHeaderDepth": "h2",
-      "dataToExtract": "contentAndMetadata"
+      "dataToExtract": "contentAndMetadata",
+      "executionEnvironment": "private"
     }
   },
   "fieldMappings": [],
