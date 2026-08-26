@@ -97,6 +97,34 @@ not, the step stays and now has a reason.
   `github-feature-foundry-vnet-injection` are both merged and can go. Consider a wildcard
   subject or a `pull_request` credential instead of one per branch.
 
+## Egress after removing the firewall
+
+Azure Firewall is gone and `enable_firewall` defaults to off — it cost ~$900/month against
+a ~$150 monthly credit and exhausted it in about five days, disabling the subscription and
+stopping every resource. As configured it filtered nothing (any source, any destination,
+443 and 53), so what was lost is the hub-and-spoke *pattern* of central egress, not a
+control.
+
+Routed subnets now rely on **Azure's default outbound access**. That works today — all
+three report `defaultOutboundAccess: true`, and a `/chat` call through the whole chain was
+verified after removal — but it has two weaknesses:
+
+- **No stable egress IP.** Azure assigns them, so nothing downstream can allowlist us. If
+  APIM ever moved back to Internal mode, or a third party needed an IP allowlist, this
+  would block it.
+- **Microsoft is retiring implicit outbound access** for newly created subnets. Existing
+  subnets keep it, but a rebuild of the VNets would land on the new behaviour and leave
+  the injected agent subnet with no route to APIM.
+
+A **NAT Gateway** (~$0.045/hour, about $33/month plus data) is the durable answer: explicit
+outbound, a stable IP, and roughly 4% of the firewall's cost. It is plumbing rather than a
+firewall — no inspection or filtering — so re-enabling `enable_firewall` remains the option
+if the demo needs to show egress control.
+
+Worth doing before either the VNets are rebuilt or anything needs to allowlist this
+environment. Until then, be aware that `enable_firewall = true` must be applied to the hub
+*before* the landing zones, and removed from the landing zones *before* the hub.
+
 ## Deferred
 
 - **Point-to-site VPN** on the reserved `gw` subnet (`10.1.1.0/24`). Would restore fully
