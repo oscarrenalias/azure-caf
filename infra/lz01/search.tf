@@ -18,6 +18,12 @@ resource "azurerm_search_service" "main" {
   public_network_access_enabled = false
   local_authentication_enabled  = true
 
+  # Semantic ranking (the L2 cross-encoder reranker) is disabled by default and must be
+  # switched on at the service before any query can ask for it — the index's semantic
+  # configuration alone does nothing. "free" allows 1000 queries/month, which is ample
+  # for this environment; "standard" is billed per query beyond that.
+  semantic_search_sku = "free"
+
   identity {
     type = "SystemAssigned"
   }

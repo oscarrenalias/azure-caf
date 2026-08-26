@@ -47,9 +47,17 @@ def search_knowledge_base(
             k_nearest_neighbors=_TOP_K,
             fields="vector",
         )
+        # Semantic ranking adds a second pass: hybrid retrieval (BM25 fused with vector
+        # similarity by Reciprocal Rank Fusion) proposes candidates, then a Microsoft
+        # cross-encoder re-reads them against the question and reorders. It helps most
+        # where RRF is weakest — paraphrase and poetic language, which is all of this
+        # corpus. The configuration named here lives in the index (search/index.json);
+        # this query is what actually activates it.
         results = _search_client().search(
             search_text=query,
             vector_queries=[vector_query],
+            query_type="semantic",
+            semantic_configuration_name="books-semantic",
             select=["chunk", "chapter", "title", "author", "translator"],
             top=_TOP_K,
         )
