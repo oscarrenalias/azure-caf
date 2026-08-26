@@ -12,26 +12,55 @@
     {
       "name": "parent_id",
       "type": "Edm.String",
-      "filterable": true,
-      "comment": "The blob a chunk came from. Index projections populate this, and it is how all chunks of one book are deleted before a re-index."
+      "filterable": true
     },
-    { "name": "chunk", "type": "Edm.String", "searchable": true },
+    {
+      "name": "chunk",
+      "type": "Edm.String",
+      "searchable": true
+    },
     {
       "name": "chapter",
       "type": "Edm.String",
       "searchable": true,
       "filterable": true,
-      "facetable": true,
-      "comment": "From the markdown h2 heading, e.g. 'Book IX: The Embassy to Achilles'. This is what lets the agent cite a source."
+      "facetable": true
     },
-    { "name": "ordinal_position", "type": "Edm.Int32", "filterable": true, "sortable": true },
-
-    { "name": "title", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true },
-    { "name": "author", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true },
-    { "name": "translator", "type": "Edm.String", "filterable": true },
-    { "name": "year", "type": "Edm.String", "filterable": true },
-    { "name": "language", "type": "Edm.String", "filterable": true },
-
+    {
+      "name": "ordinal_position",
+      "type": "Edm.Int32",
+      "filterable": true,
+      "sortable": true
+    },
+    {
+      "name": "title",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "facetable": true
+    },
+    {
+      "name": "author",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "facetable": true
+    },
+    {
+      "name": "translator",
+      "type": "Edm.String",
+      "filterable": true
+    },
+    {
+      "name": "year",
+      "type": "Edm.String",
+      "filterable": true
+    },
+    {
+      "name": "language",
+      "type": "Edm.String",
+      "filterable": true
+    },
     {
       "name": "vector",
       "type": "Collection(Edm.Single)",
@@ -43,7 +72,12 @@
     }
   ],
   "vectorSearch": {
-    "algorithms": [{ "name": "books-hnsw", "kind": "hnsw" }],
+    "algorithms": [
+      {
+        "name": "books-hnsw",
+        "kind": "hnsw"
+      }
+    ],
     "profiles": [
       {
         "name": "books-profile",
@@ -68,9 +102,19 @@
       {
         "name": "books-semantic",
         "prioritizedFields": {
-          "titleField": { "fieldName": "chapter" },
-          "prioritizedContentFields": [{ "fieldName": "chunk" }],
-          "prioritizedKeywordsFields": [{ "fieldName": "title" }]
+          "titleField": {
+            "fieldName": "chapter"
+          },
+          "prioritizedContentFields": [
+            {
+              "fieldName": "chunk"
+            }
+          ],
+          "prioritizedKeywordsFields": [
+            {
+              "fieldName": "title"
+            }
+          ]
         }
       }
     ]
