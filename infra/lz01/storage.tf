@@ -21,12 +21,37 @@ resource "azapi_resource" "content" {
     sku  = { name = "Standard_LRS" }
     kind = "StorageV2"
     properties = {
-      publicNetworkAccess      = "Disabled"
       allowSharedKeyAccess     = false
       allowBlobPublicAccess    = false
       supportsHttpsTrafficOnly = true
       minimumTlsVersion        = "TLS1_2"
       accessTier               = "Hot"
+
+      # Not "Disabled", despite the private endpoint below, because the AI Search
+      # indexer cannot reach it otherwise. When storage is network-protected and in the
+      # *same region* as the search service, Microsoft does not support the shared
+      # private link path: the connection has to come through the trusted-service
+      # exception or a resource instance rule, and both are evaluated on the public
+      # endpoint. With it Disabled the indexer fails with "Credentials provided in the
+      # connection string are invalid or have expired", which reads like an auth problem
+      # and is not.
+      #
+      # The exposure is narrow: default action Deny with no IP rules, so the only
+      # non-private caller admitted is the one search service named below. Everything
+      # else — the jump host uploading content — still goes through the private endpoint.
+      publicNetworkAccess = "Enabled"
+      networkAcls = {
+        defaultAction = "Deny"
+        bypass        = "None"
+        ipRules       = []
+        virtualNetworkRules = []
+        resourceAccessRules = [
+          {
+            tenantId   = data.azurerm_client_config.current.tenant_id
+            resourceId = azurerm_search_service.main.id
+          }
+        ]
+      }
     }
   }
 
