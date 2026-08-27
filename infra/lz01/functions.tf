@@ -76,9 +76,26 @@ resource "azurerm_function_app_flex_consumption" "orders" {
   site_config {}
 
   app_settings = {
-    # The Functions host's own bookkeeping storage, also identity-based for the same
-    # reason. The three-part __ syntax is how the host is told to use a managed
-    # identity instead of a connection string.
+    # Blanking this is load-bearing, not tidiness. The provider builds an
+    # AzureWebJobsStorage connection string unconditionally in the create path —
+    # `fmt.Sprintf(StorageStringFmt, storageName, StorageAccessKey, suffix)` — even when
+    # storage_authentication_type is UserAssignedIdentity and there is no access key to
+    # put in it. The result is `...;AccountKey=;...`. The plain setting takes precedence
+    # over the __-suffixed identity form below, so the host tries to authenticate with an
+    # empty key against an account that rejects keys outright, fails to start, and every
+    # symptom points somewhere else: the zip deploy reports success, then the CLI's
+    # health check says "Failed to fetch host key", and ARM's listKeys returns
+    # "InternalServerError from host runtime".
+    #
+    # An explicit empty value wins because MergeUserAppSettings applies user settings
+    # last ("explicit user settings take priority over enumerated"), and the host treats
+    # an empty value as absent and falls through to the identity form. Terraform cannot
+    # remove the setting outright, only override it, so empty is the fix available.
+    AzureWebJobsStorage = ""
+
+    # The Functions host's own bookkeeping storage, identity-based because the account
+    # has shared keys disabled. The three-part __ syntax is how the host is told to use a
+    # managed identity instead of a connection string.
     AzureWebJobsStorage__accountName = azapi_resource.content.name
     AzureWebJobsStorage__credential  = "managedidentity"
     AzureWebJobsStorage__clientId    = azurerm_user_assigned_identity.functions.client_id
