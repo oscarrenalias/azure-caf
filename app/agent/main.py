@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-
-import yaml
 
 from azure.ai.agentserver.responses import (
     CreateResponse,
@@ -17,6 +14,7 @@ from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
 from langgraph.prebuilt import create_react_agent
 
+from config import INSTRUCTIONS
 from tools import search_knowledge_base
 
 _credential = DefaultAzureCredential()
@@ -25,18 +23,7 @@ _model = AzureAIOpenAIApiChatModel(
     credential=_credential,
     model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
 )
-def _load_instructions() -> str:
-    for candidate in [
-        Path(__file__).parent / "agent.yaml",
-        Path.cwd() / "agent.yaml",
-    ]:
-        if candidate.exists():
-            return yaml.safe_load(candidate.read_text())["instructions"]
-    return "You are a helpful assistant."
-
-
-_INSTRUCTIONS = _load_instructions()
-_agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=_INSTRUCTIONS)
+_agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=INSTRUCTIONS)
 
 server = ResponsesAgentServerHost(
     options=ResponsesServerOptions(default_fetch_history_count=20)
