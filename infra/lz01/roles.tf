@@ -34,6 +34,16 @@ resource "azurerm_role_assignment" "jump_vm_foundry_manager" {
   principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
 }
 
+# Jump VM identity → Foundry User, which is the role the Toolbox documentation names
+# for creating and calling toolboxes. Granted explicitly rather than assumed to be
+# implied by Foundry Project Manager above: the toolbox is created from the jump host
+# (app/toolbox/README.md), and a missing role there surfaces as an opaque 403.
+resource "azurerm_role_assignment" "jump_vm_foundry_user" {
+  scope                = azurerm_cognitive_account.foundry_hub.id
+  role_definition_name = "Foundry User"
+  principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
+}
+
 # Jump VM identity → upload content to the container. The storage account is
 # private-endpoint only and has shared keys disabled, so ingestion runs from inside the
 # VNet with `az storage blob upload --auth-mode login`, authenticating as this identity.
@@ -74,6 +84,34 @@ resource "azurerm_role_assignment" "appservice_acr_pull" {
   scope                = azurerm_container_registry.main.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.appservice.principal_id
+}
+
+# Orders Function App identity → its deployment container and the Functions host's own
+# bookkeeping blobs. Blob Data *Owner* rather than Contributor: with an identity-based
+# AzureWebJobsStorage the host creates and leases its own containers, which Contributor
+# does not permit, and the app then fails to start with a lease error that says nothing
+# about permissions.
+resource "azurerm_role_assignment" "functions_storage_blob_owner" {
+  scope                = azapi_resource.content.id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = azurerm_user_assigned_identity.functions.principal_id
+}
+
+# Orders Function App identity → read and write the orders table. This is the only
+# write path to the system of record; nothing else is granted it.
+resource "azurerm_role_assignment" "functions_storage_table_contributor" {
+  scope                = azapi_resource.content.id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.functions.principal_id
+}
+
+# Jump VM identity → read and write the orders table, so a developer can inspect or
+# seed rows directly when a tool call misbehaves and it is unclear whether the fault is
+# the API's or the agent's.
+resource "azurerm_role_assignment" "jump_vm_storage_table_contributor" {
+  scope                = azapi_resource.content.id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = data.azurerm_virtual_machine.jump.identity[0].principal_id
 }
 
 # Foundry Project managed identity → Container Registry Repository Reader on ACR.

@@ -81,6 +81,10 @@ variable "dnszones" {
     # with an inbound private endpoint, the zone to add is privatelink.azure-api.net.
     { name = "privatelink.search.windows.net" },
     { name = "privatelink.blob.core.windows.net" },
+    # Table Storage resolves on its own suffix and needs its own private endpoint:
+    # the blob zone above does nothing for <account>.table.core.windows.net. The
+    # orders backend (infra/lz01/functions.tf) stores orders in Table Storage.
+    { name = "privatelink.table.core.windows.net" },
     { name = "privatelink.api.azureml.ms" },
     { name = "privatelink.azurecr.io" },
   ]

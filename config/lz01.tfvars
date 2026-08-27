@@ -6,6 +6,11 @@ subnets = [
   { name = "private-endpoint", prefix = "10.1.2.0/24", route = false },
   { name = "app-service-integration", prefix = "10.1.3.0/24", route = true, delegation = "Microsoft.Web/serverFarms" },
   { name = "ai-agents", prefix = "10.1.4.0/24", route = true, delegation = "Microsoft.App/environments" },
+  # Flex Consumption VNet integration needs a subnet delegated to
+  # Microsoft.App/environments that it does not share with anything else — ever.
+  # `ai-agents` carries the same delegation but belongs exclusively to the Foundry
+  # account's network injection, so the orders Function App gets its own.
+  { name = "functions", prefix = "10.1.5.0/24", route = false, delegation = "Microsoft.App/environments" },
 ]
 
 # Fill these from lz-platform Terraform outputs after applying lz-platform:

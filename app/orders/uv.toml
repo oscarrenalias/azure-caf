@@ -1,0 +1,9 @@
+# This file exists to stop uv walking up the tree and picking up `[tool.uv]` from
+# app/pyproject.toml, which sets `prerelease = "allow"` — it has to, because the agent's
+# langchain-azure-ai depends on a pre-release. Inherited here it silently resolved
+# azure-functions and azure-identity to betas, which is not what should be running the
+# system of record.
+#
+# uv.toml overrides [tool.uv] as a whole rather than merging with it, so every uv
+# setting for this project has to live in this file.
+prerelease = "if-necessary"

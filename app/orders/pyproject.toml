@@ -1,0 +1,20 @@
+[project]
+name = "orders-api"
+version = "0.1.0"
+description = "Orders REST API on Azure Functions, backed by Table Storage"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "azure-functions>=1.21.0",
+    "azure-data-tables>=12.5.0",
+    "azure-identity>=1.25.0",
+]
+
+# uv is the source of truth for dependencies here, as everywhere else in this repo.
+# The Functions remote build (Oryx) only reads requirements.txt, though, so
+# ordersdeploy.yml exports one from uv.lock immediately before publishing rather than
+# keeping a second hand-maintained list that can drift from the lock:
+#
+#   uv export --no-hashes --no-dev --format requirements-txt -o requirements.txt
+#
+# requirements.txt is git-ignored for that reason — a committed one would win over the
+# lock without anyone noticing, the same trap documented for the agent in CLAUDE.md.

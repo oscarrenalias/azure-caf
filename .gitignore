@@ -11,3 +11,13 @@ content/*.epub
 # Provider lock files: generated locally on darwin_arm64, which would break init on
 # the linux runners. Regenerated per environment by each terraform init.
 **/.terraform.lock.hcl
+
+# Python virtualenvs and caches
+**/.venv/
+**/__pycache__/
+.pytest_cache/
+
+# Exported from uv.lock by ordersdeploy.yml immediately before publishing. A committed
+# copy would silently take precedence over the lock in the Functions remote build.
+app/orders/requirements.txt
+app/orders/local.settings.json

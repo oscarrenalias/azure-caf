@@ -1,0 +1,151 @@
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'The target environment'
+        required: true
+        default: lz01
+        type: choice
+        options:
+          - lz01
+          - lz02
+
+permissions:
+  id-token: write
+  contents: read
+
+name: ordersdeploy
+run-name: ordersdeploy | ${{ github.event.inputs.environment }} | ${{ github.sha }}
+
+# Self-hosted, like every other deploy here: the Function App is private-endpoint only,
+# so both the SCM deployment endpoint and the smoke test at the end are reachable from
+# the jump VM and from nowhere on the public internet.
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Clean workspace
+        run: rm -rf ${{ github.workspace }}/app
+
+      - uses: actions/checkout@v7
+
+      - name: Environment variables
+        run: |
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+          grep -v '^\s*#' config/${{ github.event.inputs.environment }}.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+
+      - name: Resolve names
+        run: |
+          NUMBER=$(grep number config/global.tfvars | cut -d= -f2 | tr -d ' "')
+          LZ=$(grep '^lz ' config/${{ github.event.inputs.environment }}.tfvars | cut -d= -f2 | tr -d ' "')
+          echo "RESOURCE_GROUP=rg${NUMBER}-${LZ}" >>$GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Resolve Function App
+        run: |
+          FUNCTION_APP=$(az functionapp list --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[?starts_with(name, 'func')].name | [0]" -o tsv)
+          if [ -z "$FUNCTION_APP" ]; then
+            echo "::error::no Function App starting with 'func' in ${{ env.RESOURCE_GROUP }} — apply infra/lz01 first"
+            exit 1
+          fi
+          echo "FUNCTION_APP=${FUNCTION_APP}" >>$GITHUB_ENV
+
+      - name: Install uv
+        run: |
+          if ! command -v uv &>/dev/null; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            echo "$HOME/.local/bin" >>$GITHUB_PATH
+          fi
+
+      # The Functions remote build reads requirements.txt and nothing else, so it is
+      # exported from uv.lock here rather than committed. A committed copy would
+      # silently take precedence over the lock — the same trap that once had the agent
+      # running a mismatched azure-ai-agentserver pair.
+      - name: Export requirements from the lock
+        working-directory: app/orders
+        run: |
+          uv export --no-hashes --no-dev --no-emit-project \
+            --format requirements-txt -o requirements.txt
+          echo "=== requirements.txt ==="
+          cat requirements.txt
+
+      - name: Package
+        working-directory: app/orders
+        run: |
+          rm -f /tmp/orders.zip
+          zip -r /tmp/orders.zip . \
+            -x '.venv/*' 'tests/*' '__pycache__/*' '*.pyc' \
+               'local.settings.json' 'local.settings.json.example' \
+               'openapi.yaml' 'README.md' 'uv.lock' 'pyproject.toml'
+          unzip -l /tmp/orders.zip
+
+      # Flex Consumption always builds Python remotely from requirements.txt; there is
+      # no local build to opt into. The package lands in the function-releases container
+      # in the shared storage account, which the app pulls from at every cold start.
+      - name: Deploy
+        run: |
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.FUNCTION_APP }} \
+            --src /tmp/orders.zip
+
+      - name: Smoke test
+        run: |
+          KEY=$(az functionapp keys list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.FUNCTION_APP }} \
+            --query "functionKeys.default" -o tsv)
+
+          BASE="https://${{ env.FUNCTION_APP }}.azurewebsites.net/api"
+
+          # Cold start after a deploy can take a while; poll rather than fail on the
+          # first refusal.
+          for attempt in $(seq 1 20); do
+            CODE=$(curl -s -o /tmp/list.json -w '%{http_code}' \
+              -H "x-functions-key: ${KEY}" "${BASE}/orders?customerId=smoke-test" || true)
+            [ "$CODE" = "200" ] && break
+            echo "attempt ${attempt}: HTTP ${CODE}, waiting"
+            sleep 15
+          done
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::listOrders returned ${CODE} after the deploy"
+            cat /tmp/list.json || true
+            exit 1
+          fi
+          cat /tmp/list.json
+
+          # A missing order must be an unambiguous 404. The agent is instructed to
+          # report that rather than answer around it, so a regression here is a
+          # correctness problem, not cosmetics.
+          CODE=$(curl -s -o /tmp/404.json -w '%{http_code}' \
+            -H "x-functions-key: ${KEY}" "${BASE}/orders/ORD-DOESNOTEXIST")
+          cat /tmp/404.json
+          if [ "$CODE" != "404" ]; then
+            echo "::error::expected 404 for an unknown order id, got ${CODE}"
+            exit 1
+          fi
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          az webapp log tail --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.FUNCTION_APP }} --provider application 2>&1 | head -100 || true
+
+      - name: Summary
+        run: |
+          echo "### Orders API deployed" >>$GITHUB_STEP_SUMMARY
+          echo "| | |" >>$GITHUB_STEP_SUMMARY
+          echo "|---|---|" >>$GITHUB_STEP_SUMMARY
+          echo "| Function App | \`${{ env.FUNCTION_APP }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Source | \`${{ github.ref_name }}@${{ github.sha }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Smoke test | listOrders 200, unknown id 404 |" >>$GITHUB_STEP_SUMMARY
