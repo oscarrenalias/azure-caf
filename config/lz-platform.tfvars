@@ -14,4 +14,4 @@ apim_publisher_email = "oscar.renalias@accenture.com"
 #   terraform -chdir=infra/lz01 output -raw orders_function_name
 # and re-apply lz-platform. Empty means orders.tf creates nothing at all, which is what
 # a first-time deploy needs, since lz-platform is applied before lz01 exists.
-orders_function_name = ""
+orders_function_name = "func95aef3156f0f"
