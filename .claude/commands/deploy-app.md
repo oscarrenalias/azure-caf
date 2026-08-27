@@ -1,19 +1,31 @@
 ---
-description: Deploy or update the chat UI on App Service, the hosted agent on Foundry Agent Service, or both. Triggers the deploy workflows on the self-hosted runner and verifies the result end to end.
+description: Deploy or update the chat UI on App Service, the hosted agent on Foundry Agent Service, the orders backend on Azure Functions, or any combination. Triggers the deploy workflows on the self-hosted runner and verifies the result end to end.
 allowed-tools: [Bash, Read]
 ---
 
 You are helping the user deploy or update the application in a landing zone. There are
-two deployables in `app/`, each with its own workflow, and both run on the self-hosted
+three deployables in `app/`, each with its own workflow, and all run on the self-hosted
 GitHub Actions runner on the hub jump VM because they need VNet access and Docker.
 
 | Deployable | Source | Workflow | Target |
 |---|---|---|---|
 | Chat UI | `app/ui/` | `appdeploy.yml` | App Service container |
 | Agent | `app/agent/` | `agentdeploy.yml` | Foundry Agent Service (hosted agent) |
+| Orders API | `app/orders/` | `ordersdeploy.yml` | Function App (Flex Consumption) |
 
-If the change touches `app/agent/`, deploy the agent. If it touches `app/ui/`, deploy
-the UI. If both, deploy the agent first — the UI calls it.
+Deploy whichever the change touches. Where more than one is involved, go bottom-up —
+orders, then agent, then UI — since each calls the one before it.
+
+Two things that are not this skill's job, and should be pointed at instead of
+improvised:
+
+- Changing `app/orders/openapi.yaml` changes the APIM contract, so `infra/lz-platform`
+  has to be re-applied afterwards or the gateway keeps serving the old operations. If
+  an `operationId` changed, a tool in `infra/lz-platform/orders.tf` needs updating to
+  match or the apply fails.
+- Changing which tools the agent has is a toolbox change, not an agent deploy — see
+  `app/toolbox/README.md`. That is the point of the Toolbox: tools change without the
+  container being rebuilt.
 
 ## Step 1 — Confirm inputs
 
@@ -39,12 +51,16 @@ runner service stopped. Start the VM with
 
 ## Step 3 — Deploy
 
-Both workflows build on the checked-out ref, so make sure the changes are **committed
-and pushed** first — deploying uncommitted work silently ships the previous commit.
+All three workflows build on the checked-out ref, so make sure the changes are
+**committed and pushed** first — deploying uncommitted work silently ships the previous
+commit.
 
 ```bash
-# Agent
-gh workflow run agentdeploy.yml -f environment=<lzname>
+# Orders API
+gh workflow run ordersdeploy.yml -f environment=<lzname>
+
+# Agent (drop -f toolbox= to deploy without the order tools)
+gh workflow run agentdeploy.yml -f environment=<lzname> -f toolbox=orders-toolbox
 
 # UI
 gh workflow run appdeploy.yml -f environment=<lzname> -f appservice=<app-service-name>
@@ -55,10 +71,15 @@ gh run watch
 `agentdeploy.yml` patches the Foundry project name into `app/azure.yaml` with `yq`,
 runs `azd deploy` (the platform builds from `pyproject.toml` + `uv.lock` — there is no
 `requirements.txt`, and adding one would override the lock), then grants the agent's
-platform-created identity `Foundry Project Manager` on the account.
+platform-created identity `Foundry Project Manager` and `Foundry User` on the account.
 
 `appdeploy.yml` builds `app/ui/Dockerfile`, pushes to the landing zone ACR, and points
 the App Service at the new tag. The App Service pulls with its managed identity.
+
+`ordersdeploy.yml` exports `requirements.txt` from `uv.lock` (Functions' remote build
+reads only that), zip-deploys to the Function App, and then smoke-tests it: `listOrders`
+must return 200 and an unknown order id must return 404. Treat a smoke-test failure as a
+failed deploy — the agent's behaviour depends on that 404 being unambiguous.
 
 ## Step 4 — Verify
 

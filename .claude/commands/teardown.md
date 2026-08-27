@@ -38,6 +38,23 @@ az group list --query "[?starts_with(name, 'rgstate') || starts_with(name, 'rgmi
 
 Note: the state storage account (`rgstate<number>`) and managed identity (`rgmi<number>`) are NOT managed by Terraform — they must be deleted manually if doing a full cleanup.
 
+## Step 2b — Remove the toolbox and its connection
+
+Only if the orders stack was deployed. These are created by hand from the jump host
+(`app/toolbox/README.md`), so Terraform does not own them and a destroy leaves them
+behind pointing at an APIM gateway that no longer exists.
+
+**Confirm with user before running.** On the jump host:
+
+```bash
+azd ai project set "$FOUNDRY_PROJECT_ENDPOINT"
+azd ai toolbox delete orders-toolbox --force
+azd ai connection delete apim-orders-mcp --force
+```
+
+Do this before destroying lz-platform, so the toolbox is removed while the MCP server it
+references still exists.
+
 ## Step 3 — Destroy landing zones (in reverse order)
 
 For each landing zone (lz01, lz02, etc.) that needs to be destroyed, run the destroy workflow. If multiple LZs exist, destroy them one at a time and wait for each to complete before starting the next.
@@ -60,6 +77,17 @@ az resource list --resource-group rg<number>-<lzname> -o table
 ## Step 3b — Destroy lz-platform
 
 Only after every workload landing zone is destroyed.
+
+If the orders stack was deployed, destroying lz01 first leaves lz-platform holding an
+`orders-api` whose backend no longer exists, and a `data.azurerm_function_app_host_keys`
+lookup for a Function App that has gone — which fails the plan rather than the apply. If
+the destroy errors on that lookup, blank `orders_function_name` in
+`config/lz-platform.tfvars` and re-run: with it empty, `orders.tf` creates nothing and
+Terraform simply removes what is in state.
+
+Within the stack, MCP tools must go before the operations they reference. Terraform
+destroys children first, so a normal destroy is fine; deleting the REST API by hand
+first is not.
 
 **Confirm with user before running.**
 

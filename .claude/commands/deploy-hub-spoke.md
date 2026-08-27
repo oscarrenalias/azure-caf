@@ -210,14 +210,59 @@ gh workflow run terraform.yml \
 gh run watch
 ```
 
+## Phase 4b — Orders backend, and the second lz-platform apply
+
+Skip this whole phase if the environment does not need the orders tools; the agent
+deploys fine without them and answers from the knowledge base only.
+
+lz01 needs lz-platform for the model gateway, and lz-platform needs lz01 for the orders
+Function App name. That loop is broken by applying lz-platform twice.
+
+```bash
+source config/global.env
+
+# 1. Publish the API to the Function App created in phase 4.
+gh workflow run ordersdeploy.yml -f environment=lz01
+gh run watch
+```
+
+The workflow's own smoke test must pass — it creates nothing, but it checks `listOrders`
+returns 200 and that an unknown order id returns 404 rather than something ambiguous. Do
+not continue past a failure here; every later stage assumes this one works.
+
+```bash
+# 2. Tell lz-platform which Function App to front.
+FUNC=$(az functionapp list --resource-group rg${NUMBER}-lz01 \
+  --query "[?starts_with(name,'func')].name | [0]" -o tsv)
+sed -i.bak "s|^orders_function_name = .*|orders_function_name = \"${FUNC}\"|" \
+  config/lz-platform.tfvars && rm -f config/lz-platform.tfvars.bak
+git add config/lz-platform.tfvars && git commit -m "config: point lz-platform at the orders Function App"
+git push
+
+# 3. Re-apply lz-platform. This creates the orders-api REST API and the orders-mcp
+#    MCP server; the first apply skipped both because the name was empty.
+gh workflow run terraform.yml -f environment=lz-platform -f action=apply -f runner=ubuntu-latest
+gh run watch
+```
+
+Then create the Foundry Toolbox. This part is done by hand **on the jump host** — the
+Foundry project has no public inbound — and is a one-off; the agent afterwards follows
+the toolbox's default version without redeploying. Follow `app/toolbox/README.md`, which
+covers the project connection holding the APIM subscription key, `create_toolbox.py`,
+and `probe_toolbox.py`.
+
+Probe the toolbox before moving on. It proves credential injection works with no agent
+in the picture, so a later agent failure is unambiguously the agent's fault.
+
 ## Phase 5 — Deploy the application
 
 Two deployables, both on the self-hosted runner. Deploy the agent first — the UI calls
 it.
 
 ```bash
-# LangGraph agent → Foundry Agent Service
-gh workflow run agentdeploy.yml -f environment=lz01
+# LangGraph agent → Foundry Agent Service.
+# Drop -f toolbox= if phase 4b was skipped; the agent then has no order tools.
+gh workflow run agentdeploy.yml -f environment=lz01 -f toolbox=orders-toolbox
 gh run watch
 
 # FastAPI chat UI → App Service
@@ -245,6 +290,27 @@ curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
 ```
 
 Expect `HTTP 200` and a JSON `{"response": "...", "response_id": "..."}`.
+
+If phase 4b ran, exercise the orders path too. Thread `previous_response_id` back in, or
+the agent sees each message as a fresh conversation and the confirmation cannot work:
+
+```bash
+R1=$(curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Create an order for customer acme-industries with two WIDGET-001"}')
+echo "$R1"
+
+# The agent should have restated the order and asked — it must not have created it yet.
+ID=$(echo "$R1" | python3 -c "import json,sys; print(json.load(sys.stdin)['response_id'])")
+curl -s -X POST "https://${APP}.azurewebsites.net/chat" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"yes\",\"previous_response_id\":\"${ID}\"}"
+```
+
+The first reply must ask for confirmation and must not report an order id. Repeat with
+"no" instead of "yes" and check no row was written — see `app/orders/README.md` for
+reading the table directly. Then ask a question about the Iliad, to confirm the
+knowledge-base path still works now that the agent has two tool sources.
 
 If `/chat` returns 502 with an agent 500 inside it, the request is failing before it
 reaches the agent container. Check the container is healthy and see whether it logs an

@@ -8,6 +8,11 @@ on:
         type: choice
         options:
           - lz01
+      toolbox:
+        description: 'Foundry Toolbox name supplying the order tools (empty deploys without them)'
+        required: false
+        default: orders-toolbox
+        type: string
 
 permissions:
   id-token: write
@@ -111,6 +116,22 @@ jobs:
           azd env set SEARCH_INDEX_NAME "knowledge-base"
           azd env set SEARCH_API_KEY "$(az search admin-key show --service-name ${SEARCH_NAME} --resource-group ${{ env.RESOURCE_GROUP }} --query primaryKey -o tsv)"
 
+          # The orders tools. The unversioned consumer endpoint is used deliberately —
+          # it always serves the toolbox's default version, so publishing a new version
+          # reaches the agent without a redeploy, which is the point of the Toolbox.
+          # The toolbox itself is created by hand from the jump host once; see
+          # app/toolbox/README.md. Absent, the agent keeps working without order tools.
+          TOOLBOX_NAME="${{ github.event.inputs.toolbox }}"
+          azd env set TOOLBOX_NAME "${TOOLBOX_NAME}"
+          if [ -n "${TOOLBOX_NAME}" ]; then
+            azd env set TOOLBOX_ENDPOINT \
+              "https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}/toolboxes/${TOOLBOX_NAME}/mcp?api-version=v1"
+          else
+            azd env set TOOLBOX_ENDPOINT ""
+            echo "::warning::no toolbox given — the agent will deploy without order tools"
+          fi
+          azd env set TOOLBOX_APPROVAL_TOOLS "createOrder,updateOrder"
+
       - name: Install yq
         run: |
           if ! command -v yq &>/dev/null; then
@@ -160,18 +181,25 @@ jobs:
           echo "Agent identity principal: $PRINCIPAL"
 
           SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_HUB_NAME}"
-          if az role assignment list --assignee "$PRINCIPAL" --scope "$SCOPE" \
-               --query "[?roleDefinitionName=='Foundry Project Manager'] | length(@)" -o tsv | grep -qv '^0$'; then
-            echo "Role assignment already present."
-          else
-            az role assignment create \
-              --assignee-object-id "$PRINCIPAL" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Foundry Project Manager" \
-              --scope "$SCOPE" \
-              --only-show-errors -o none
-            echo "Granted Foundry Project Manager to the agent identity."
-          fi
+
+          # Foundry Project Manager covers the data-plane calls for connected-mode
+          # models. Foundry User is what the Toolbox documentation names as the role an
+          # agent identity needs to call a toolbox, so it is granted explicitly rather
+          # than assumed to be implied by the broader role.
+          for ROLE in "Foundry Project Manager" "Foundry User"; do
+            if az role assignment list --assignee "$PRINCIPAL" --scope "$SCOPE" \
+                 --query "[?roleDefinitionName=='${ROLE}'] | length(@)" -o tsv | grep -qv '^0$'; then
+              echo "${ROLE}: already present."
+            else
+              az role assignment create \
+                --assignee-object-id "$PRINCIPAL" \
+                --assignee-principal-type ServicePrincipal \
+                --role "${ROLE}" \
+                --scope "$SCOPE" \
+                --only-show-errors -o none
+              echo "${ROLE}: granted to the agent identity."
+            fi
+          done
         env:
           FOUNDRY_PROJECT_ENDPOINT: https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}
 
@@ -190,5 +218,6 @@ jobs:
           echo "| | |" >>$GITHUB_STEP_SUMMARY
           echo "|---|---|" >>$GITHUB_STEP_SUMMARY
           echo "| Project | \`${{ env.FOUNDRY_PROJECT_NAME }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Toolbox | \`${{ github.event.inputs.toolbox || '(none)' }}\` |" >>$GITHUB_STEP_SUMMARY
           echo "| Source | \`${{ github.ref_name }}@${{ github.sha }}\` |" >>$GITHUB_STEP_SUMMARY
           echo "| Built by | Foundry remote build from pyproject.toml + uv.lock |" >>$GITHUB_STEP_SUMMARY

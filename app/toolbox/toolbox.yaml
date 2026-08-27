@@ -1,0 +1,19 @@
+# Foundry Toolbox definition for the `azd ai toolbox create --from-file` path.
+#
+# The YAML references the project connection by name and never embeds a credential —
+# the APIM subscription key lives in the connection, and the Toolbox injects it when a
+# tool is called. Create the connection first (see README.md):
+#
+#   azd ai connection create apim-orders-mcp \
+#     --kind remote-tool \
+#     --target "$ORDERS_MCP_URL" \
+#     --auth-type custom-keys \
+#     --custom-key "Ocp-Apim-Subscription-Key=$ORDERS_SUBSCRIPTION_KEY"
+#
+#   azd ai toolbox create orders-toolbox --from-file ./toolbox.yaml --no-prompt
+#
+# This form cannot express require_approval, which is why create_toolbox.py exists and
+# is the path this repo uses. Keep the two in step if you edit either.
+description: Customer orders, served by the APIM MCP gateway over the orders REST API.
+connections:
+  - name: apim-orders-mcp

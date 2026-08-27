@@ -28,6 +28,10 @@ subnets = [
   { name = "private-endpoint",      prefix = "<vnet-third-octet>.2.0/24",  route = false },
   { name = "app-service-integration", prefix = "<vnet-third-octet>.3.0/24", route = true, delegation = "Microsoft.Web/serverFarms" },
   { name = "ai-agents",             prefix = "<vnet-third-octet>.4.0/24",  route = true, delegation = "Microsoft.App/environments" },
+  # Required by functions.tf, which is copied along with the rest of infra/lz01. The
+  # Flex Consumption plan needs a delegated subnet it shares with nothing else, so this
+  # cannot be folded into ai-agents even though the delegation is the same.
+  { name = "functions",             prefix = "<vnet-third-octet>.5.0/24",  route = false, delegation = "Microsoft.App/environments" },
 ]
 
 # Models are shared and live in lz-platform; workloads reach them through the gateway.
@@ -57,6 +61,21 @@ Add the new VNet to the `networks` list and add bidirectional peerings:
 { name = "hub-<lzname>", source = "hub", destination = "<lzname>" },
 { name = "<lzname>-hub", source = "<lzname>", destination = "hub" },
 ```
+
+Add the spoke-to-spoke pair as well **if this landing zone will run the orders backend**.
+Peering is not transitive and the firewall is off by default, so APIM in lz-platform
+cannot otherwise reach the Function App's private endpoint in the new VNet:
+
+```hcl
+{ name = "<lzname>-lz-platform", source = "<lzname>",    destination = "lz-platform" },
+{ name = "lz-platform-<lzname>", source = "lz-platform", destination = "<lzname>"    },
+```
+
+Note that `infra/lz-platform/orders.tf` fronts **one** Function App, named by
+`orders_function_name` with `orders_lz` saying which landing zone it lives in. Two
+landing zones both wanting orders through the gateway needs that file generalised
+first — it is not a copy-and-change-the-name job, because the APIM api, product and MCP
+server names would collide.
 
 ## Step 4 — Copy lz01 Terraform to new LZ
 

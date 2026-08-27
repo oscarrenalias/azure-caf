@@ -15,15 +15,26 @@ lz01 VNet (10.1.0.0/16)
   ├── gw (10.1.1.0/24)
   ├── private-endpoint (10.1.2.0/24)    — private endpoints for App Service, AI Foundry
   ├── app-service-integration (10.1.3.0/24)  — VNet-integrated App Service (delegated)
-  └── ai-agents (10.1.4.0/24)          — Container Apps environments (delegated)
+  ├── ai-agents (10.1.4.0/24)          — Container Apps environments (delegated)
+  └── functions (10.1.5.0/24)          — orders Function App, Flex Consumption (delegated)
 ```
 
 Hub creates all VNets and peerings; landing zones consume hub resources via the `lz-data` module (data sources). **Deploy hub before any landing zone.**
+
+Peering is hub-and-spoke with **one exception**: `lz01 ↔ lz-platform` is peered directly.
+VNet peering is not transitive and the firewall is off by default, so without it APIM in
+lz-platform cannot reach the orders Function App's private endpoint in lz01. Both
+directions are declared in `config/hub.tfvars` like every other peering.
 
 Private DNS zones live in the hub resource group and are linked to every VNet:
 - `privatelink.azurewebsites.net`
 - `privatelink.cognitiveservices.azure.com`
 - `privatelink.openai.azure.com`
+- `privatelink.blob.core.windows.net` and `privatelink.table.core.windows.net`
+
+A private endpoint covers **one sub-resource**. The content storage account therefore has
+two — `blob` for the indexed books and the function package, `table` for the orders
+table — and adding a third storage sub-resource means a third endpoint and a third zone.
 
 ## Repository layout
 
@@ -41,12 +52,16 @@ config/
   hub.env / lz01.env  Per-env GitHub Actions env overrides
 app/            azd project: ui/ (FastAPI chat UI on App Service) and agent/ (LangGraph
                 agent on Foundry Agent Service). See "Hosted agent (app/)" below.
+  orders/       Orders REST API on Azure Functions — the system of record the agent acts
+                on. Not part of the azd project. See "Orders, MCP and the Toolbox" below.
+  toolbox/      Foundry Toolbox definition and probe for the orders MCP server
 docs/           Longer-form guides that don't belong in this file
                 vscode-remote-development.md — the jump-host development loop
 .github/workflows/
-  terraform.yml   Terraform plan/apply/destroy — runs on ubuntu-latest
-  appdeploy.yml   UI container build + App Service deploy — self-hosted runner (jump VM)
-  agentdeploy.yml Hosted agent deploy via azd — self-hosted runner (jump VM)
+  terraform.yml    Terraform plan/apply/destroy — runs on ubuntu-latest
+  appdeploy.yml    UI container build + App Service deploy — self-hosted runner (jump VM)
+  agentdeploy.yml  Hosted agent deploy via azd — self-hosted runner (jump VM)
+  ordersdeploy.yml Orders Function App deploy — self-hosted runner (jump VM)
 bootstrap.sh    One-time setup: storage account, managed identity, OIDC federated credential
 ```
 
@@ -180,6 +195,7 @@ What that buys, and what it costs:
 | Platform Foundry (models) | Private endpoint only, reached by APIM |
 | ACR | Private endpoint only; App Service pulls via `vnet_image_pull_enabled` |
 | AI Search | Private endpoint only |
+| Orders Function App | Private endpoint only; APIM reaches it over the lz01 ↔ lz-platform peering |
 | APIM gateway | Public ingress, subscription key + api policy (see below) |
 | App Service (UI) | Public ingress restricted to `allowed_ips` — the one public front door |
 | `azd ai agent run` | **Jump VM only.** The Foundry endpoint has no public inbound |
@@ -299,6 +315,148 @@ misleading in both directions:
 Wait several minutes before drawing a conclusion, and re-test from a cold state
 rather than immediately after changing the setting you are testing.
 
+## Orders, MCP and the Toolbox
+
+The second half of the agent story: acting on a system of record, not just answering
+from documents. A backend owns customer orders, APIM exposes its REST operations as MCP
+tools, and the agent drives a multi-turn process — find, create, update — confirming
+before it writes.
+
+```
+UI → hosted agent (ai-agents subnet)
+       ├─ search_knowledge_base ─────────────▶ AI Search
+       └─ MCP client ─▶ Foundry Toolbox (project MCP endpoint)
+                          └─ connection apim-orders-mcp  [api key]
+                               └─ APIM api type=mcp `orders-mcp` + 4 tools
+                                    └─ APIM REST api `orders-api` (OpenAPI import)
+                                         └─ Function App func<hex> (Flex, private)
+                                              └─ Table Storage: orders
+```
+
+The backend knows nothing about MCP. That is the demonstration: `app/orders/` is an
+ordinary HTTP API, and the gateway that already fronts the models turns it into agent
+tools.
+
+### Where each piece lives
+
+| Piece | File |
+|---|---|
+| Function App, plan, identity, private endpoint | `infra/lz01/functions.tf` |
+| `orders` table, `function-releases` container, table private endpoint | `infra/lz01/storage.tf` |
+| REST API, MCP server, tools, product, subscription | `infra/lz-platform/orders.tf` |
+| API implementation and OpenAPI contract | `app/orders/` |
+| Toolbox creation and probe | `app/toolbox/` |
+| MCP client and the confirmation gate | `app/agent/toolbox.py`, `app/agent/approvals.py` |
+
+### Deployment order, and the loop in it
+
+lz01 needs lz-platform (the model gateway) and lz-platform needs lz01 (the Function App
+name). The loop is broken exactly as `platform_foundry_name` breaks it in the other
+direction — a name copied into tfvars — so **lz-platform is applied twice**:
+
+1. `apply hub` — creates the `functions` subnet's VNet, the table DNS zone and the
+   lz01 ↔ lz-platform peering.
+2. `apply lz-platform` with `orders_function_name = ""`. Everything in `orders.tf` is
+   gated on that variable, so nothing orders-related is created.
+3. `apply lz01` — Function App and table.
+4. Run `ordersdeploy.yml` to publish the API, and verify it directly (`app/orders/README.md`).
+5. Copy the `orders_function_name` output into `config/lz-platform.tfvars` and
+   `apply lz-platform` again. Now the REST API and MCP server appear.
+6. Create the connection and toolbox from the jump host (`app/toolbox/README.md`).
+7. Run `agentdeploy.yml` with the toolbox name.
+
+Each step is verifiable before the next depends on it, which is the only reason this is
+tractable: a failure at step 6 is unambiguous if step 4 passed.
+
+### The MCP server is an APIM API of type `mcp`
+
+`azurerm` has no MCP resources at all, so `infra/lz-platform/orders.tf` uses `azapi` —
+Microsoft's own documented Terraform path, and already how this repo manages Foundry.
+Three things to know:
+
+- API version must be `2025-09-01-preview` or later, and Developer tier supports MCP, so
+  no APIM migration was needed.
+- `schema_validation_enabled = false` throughout. The azapi provider's bundled schema
+  predates the `mcp` API type and rejects it outright rather than passing it through.
+- A tool's `operationId` is the **full ARM resource id** of a backing operation, not its
+  name. It is built from `azurerm_api_management.main.id` rather than from
+  `azurerm_api_management_api.orders[0].id`, because the latter carries a `;rev=1`
+  suffix that is not valid inside an operation id.
+
+Tools cannot be deleted after the operations they reference, so on teardown the MCP
+server goes before the REST API. Terraform's normal ordering handles it; a manual
+deletion of the REST API will not.
+
+The tool *descriptions* in `orders.tf` are the highest-leverage prose in the repo — they
+are what the model reads when choosing a tool. The parameter-level guidance comes from
+`app/orders/openapi.yaml`, which supplies each tool's input schema.
+
+### Confirmation before writes is the runtime's job
+
+`require_approval` looks like a platform control and is not one. From the Toolbox
+documentation:
+
+> The MCP endpoint doesn't block `tools/call`. Enforcement is entirely the agent
+> runtime's responsibility.
+
+It is also set **per MCP server**, not per tool. So the toolbox declares
+`require_approval: always` for the whole orders server as a statement of policy, and the
+actual gate is `app/agent/approvals.py`:
+
+- A mutating tool called without approval is **held** — it returns `APPROVAL_REQUIRED`
+  and never reaches APIM. Nothing has changed at that point.
+- The held call is released only by an affirmative user message on a *later* turn, and
+  only for the identical arguments. Approval is single use.
+- Replies are read conservatively: whole-word matching (so "do it now" is not a refusal
+  because of the "no" inside "now"), and a reply carrying both signals declines.
+
+`TOOLBOX_APPROVAL_TOOLS` (default `createOrder,updateOrder`) narrows the server-wide flag
+to the two tools that write. Set it to an empty string to defer to whatever the Toolbox
+reports instead.
+
+This is why the agent now reads `context.get_history()`. Without conversation history it
+is single-turn and the confirmation flow is impossible — the model cannot restate an
+order on one turn and act on "yes" the next if it never sees the first turn.
+
+### Two things about the MCP client library
+
+`app/agent/toolbox.py` is written against **mcp 2.x**, which differs from every 1.x
+snippet in the documentation: `streamablehttp_client` became `streamable_http_client`,
+headers moved onto the HTTP client, the transport yields two streams instead of three,
+and the result fields are snake_case (`is_error`, `input_schema`, `structured_content`).
+A 1.x resolution fails at import.
+
+Tool names arrive namespaced as `{server_label}.{tool_name}` — `orders.createOrder`.
+OpenAI-style function names permit no dots, so they are converted to underscores before
+the model ever sees them. Left unconverted, the failure looks like the model ignoring
+the tools.
+
+### Flex Consumption details that cost time
+
+- The subnet must be delegated to `Microsoft.App/environments` and **cannot be shared**.
+  `ai-agents` has the same delegation but belongs exclusively to the Foundry account's
+  network injection, hence a separate `functions` subnet.
+- The Function App uses a **user-assigned** identity, not a system-assigned one. Flex
+  validates the deployment storage container at create time as the app's identity, and a
+  system-assigned principal does not exist until after the create — so its role
+  assignments cannot precede it, and the first apply would always fail.
+- `AzureWebJobsStorage` is identity-based (`__accountName`/`__credential`/`__clientId`)
+  because the storage account has shared keys disabled; a connection string cannot be
+  produced at all. The identity needs Storage Blob Data **Owner**, not Contributor — the
+  host creates and leases its own containers, and the failure otherwise is a lease error
+  that says nothing about permissions.
+- Deployment is `az functionapp deployment source config-zip` from the self-hosted
+  runner. Flex always builds Python remotely from `requirements.txt`, which
+  `ordersdeploy.yml` exports from `uv.lock` and which is deliberately **not committed** —
+  a stale committed copy silently wins over the lock, the same trap documented for the
+  agent above.
+- `app/orders/uv.toml` exists only to stop uv walking up to `app/pyproject.toml` and
+  inheriting `prerelease = "allow"`, which that file needs for the agent's
+  langchain-azure-ai. Inherited, it silently locked beta `azure-functions` and
+  `azure-identity` into the system of record. **Any new project under `app/` needs the
+  same guard.** Note also that `uv lock` will not walk an existing pin backwards after a
+  settings change; `uv lock --upgrade` is what actually re-resolves.
+
 ## Adding a new landing zone
 
 1. Copy `infra/lz01/` to `infra/lz<n>/`.
@@ -315,14 +473,14 @@ Four skills are available in `.claude/commands/` to automate the most common wor
 |-------|---------|----------|
 | deploy-hub-spoke | `/deploy-hub-spoke` | First-time deployment of the entire platform from scratch |
 | add-landing-zone | `/add-landing-zone` | Adding a new LZ (lz02, lz03, …) to the existing hub |
-| deploy-app | `/deploy-app` | Deploying or updating an app on an existing landing zone's App Service |
+| deploy-app | `/deploy-app` | Deploying or updating the UI, the agent, or the orders backend on an existing landing zone |
 | teardown | `/teardown` | Destroying resources in safe reverse order (LZs first, hub last) |
 | pause-resume | `/pause-resume` | Pause (deallocate the VM, and the firewall if enabled) or resume |
 | jump-host | `/jump-host` | Check, start or repair the jump VM on its own — runner host and the only place `azd ai agent run` works |
 
 ### `/deploy-hub-spoke`
 
-Walks through the full initial deployment sequence: prerequisite checks → bootstrap (storage account, managed identity, OIDC federated credential) → config file updates (ARM creds, SSH key, NSG source IP, GitHub runner PAT secret) → hub apply → lz01 apply → initial app deploy → verification via jump host. Skips the bootstrap phase if `config/global.env` is already populated.
+Walks through the full initial deployment sequence: prerequisite checks → bootstrap (storage account, managed identity, OIDC federated credential) → config file updates (ARM creds, SSH key, NSG source IP, GitHub runner PAT secret) → hub apply → lz-platform apply → lz01 apply → orders deploy and the second lz-platform apply → toolbox creation → agent and UI deploys → verification. Skips the bootstrap phase if `config/global.env` is already populated, and phase 4b (orders) can be skipped entirely — the agent deploys fine without the order tools.
 
 ### `/add-landing-zone`
 
@@ -330,11 +488,11 @@ Prompts for the new LZ name and VNet CIDR, then: creates `config/<lzname>.tfvars
 
 ### `/deploy-app`
 
-Looks up the App Service name if not provided, confirms the self-hosted runner on the jump VM is online, triggers `appdeploy.yml`, and verifies the app responds via a curl from the jump host. Includes troubleshooting steps for runner-offline and app-crash scenarios.
+Looks up the App Service name if not provided, confirms the self-hosted runner on the jump VM is online, triggers `appdeploy.yml`, `agentdeploy.yml` or `ordersdeploy.yml`, and verifies the result. Includes troubleshooting steps for runner-offline and app-crash scenarios, and points at the two things that are not an app deploy: an OpenAPI change needs an `infra/lz-platform` apply, and a change to which tools the agent has is a toolbox change, not a redeploy.
 
 ### `/teardown`
 
-Confirms scope with the user (single LZ, all LZs + hub, or full cleanup including bootstrap resources), lists all resource groups that will be deleted, then destroys in order: each LZ individually → hub. Prompts for explicit confirmation before each destructive workflow. Optionally cleans up the state storage account and managed identity resource groups that are not managed by Terraform.
+Confirms scope with the user (single LZ, all LZs + hub, or full cleanup including bootstrap resources), lists all resource groups that will be deleted, then destroys in order: toolbox and its connection → each LZ individually → lz-platform → hub. Prompts for explicit confirmation before each destructive workflow. Optionally cleans up the state storage account and managed identity resource groups that are not managed by Terraform.
 
 ## Terraform provider versions
 
