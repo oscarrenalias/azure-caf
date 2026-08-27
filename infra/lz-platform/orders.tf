@@ -256,6 +256,11 @@ resource "azapi_resource" "orders_mcp_tool" {
 
   schema_validation_enabled = false
 
+  # APIM uses ETags on the parent MCP API resource and rejects concurrent PUTs with 412
+  # "Resource was modified since last retrieval." All four tools lock on the same parent
+  # so the azapi provider serialises them rather than running them in parallel.
+  locks = [azapi_resource.orders_mcp[0].id]
+
   body = {
     properties = {
       displayName = each.key
