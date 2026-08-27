@@ -287,15 +287,12 @@ resource "azapi_resource" "orders_mcp_policy" {
   depends_on = [azapi_resource.orders_mcp_tool]
 }
 
-resource "azapi_resource" "orders_mcp_product_binding" {
-  count     = local.orders_enabled ? 1 : 0
-  type      = "Microsoft.ApiManagement/service/products/apis@2025-09-01-preview"
-  name      = "orders-mcp"
-  parent_id = "${azurerm_api_management.main.id}/products/${azurerm_api_management_product.orders[0].product_id}"
-
-  schema_validation_enabled = false
-
-  body = {}
+resource "azurerm_api_management_product_api" "orders_mcp" {
+  count               = local.orders_enabled ? 1 : 0
+  resource_group_name = azurerm_api_management.main.resource_group_name
+  api_management_name = azurerm_api_management.main.name
+  product_id          = azurerm_api_management_product.orders[0].product_id
+  api_name            = azapi_resource.orders_mcp[0].name
 
   depends_on = [azapi_resource.orders_mcp]
 }
