@@ -1,6 +1,7 @@
 """LangGraph RAG agent hosted on Azure AI Foundry Agent Service (Responses protocol)."""
 from __future__ import annotations
 
+import asyncio
 import os
 
 from azure.ai.agentserver.responses import (
@@ -25,18 +26,16 @@ _model = AzureAIOpenAIApiChatModel(
     model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
 )
 
+# Load toolbox tools synchronously at startup so the agent is ready on the first request.
+# asyncio.run() creates a new event loop; the agentserver framework replaces it later.
+_toolbox_tools = asyncio.run(load_tools())
+_agent = create_react_agent(
+    _model, tools=[search_knowledge_base] + _toolbox_tools, prompt=INSTRUCTIONS
+)
+
 server = ResponsesAgentServerHost(
     options=ResponsesServerOptions(default_fetch_history_count=20)
 )
-
-_agent = None
-
-
-@server.lifespan
-async def startup() -> None:
-    global _agent
-    tools = [search_knowledge_base] + await load_tools()
-    _agent = create_react_agent(_model, tools=tools, prompt=INSTRUCTIONS)
 
 
 @server.response_handler
