@@ -445,6 +445,20 @@ the tools.
   produced at all. The identity needs Storage Blob Data **Owner**, not Contributor — the
   host creates and leases its own containers, and the failure otherwise is a lease error
   that says nothing about permissions.
+- **`app_settings` must set `AzureWebJobsStorage = ""` explicitly.** azurerm 4.81.0
+  builds that connection string unconditionally in the Flex create path, even under
+  `storage_authentication_type = "UserAssignedIdentity"` where there is no access key —
+  producing `...;AccountKey=;...`. The plain setting wins over the `__`-suffixed identity
+  form, so the host authenticates with an empty key and never starts. An explicit empty
+  value overrides it (`MergeUserAppSettings` applies user settings last) and the host
+  then falls through to the identity form. Terraform can only override, not remove.
+
+  It is worth knowing what this looks like, because nothing points at storage: the zip
+  deploy **reports success**, the CLI then fails with `Failed to fetch host key to check
+  for function app status`, and ARM's `listKeys` returns `InternalServerError from host
+  runtime` — which reads like the private endpoint blocking ARM and is not. ARM reaches
+  a private Flex host fine; that error means the host itself is dead. Check
+  `az functionapp config appsettings list` before suspecting the network.
 - Deployment is `az functionapp deployment source config-zip` from the self-hosted
   runner. Flex always builds Python remotely from `requirements.txt`, which
   `ordersdeploy.yml` exports from `uv.lock` and which is deliberately **not committed** —
