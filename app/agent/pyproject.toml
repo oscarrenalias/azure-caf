@@ -20,5 +20,7 @@ dependencies = [
     "httpx2>=0.28",
 ]
 
+# uv settings live in uv.toml (prerelease = "allow", system-certs = true).
+# [tool.uv] here is intentionally empty — uv.toml takes precedence and a
+# duplicate prerelease key in pyproject.toml was silently ignored.
 [tool.uv]
-prerelease = "allow"
