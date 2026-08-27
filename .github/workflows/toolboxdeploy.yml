@@ -94,9 +94,11 @@ jobs:
           MCP_URL="https://${APIM}.azure-api.net/orders-mcp/mcp"
           echo "ORDERS_MCP_URL=${MCP_URL}" >>$GITHUB_ENV
 
-          KEY=$(az apim subscription list \
-            -g ${{ env.LZ_PLATFORM_RG }} -n "${APIM}" \
-            --query "[?displayName=='Orders Default'].primaryKey | [0]" -o tsv)
+          # `az apim subscription list` is not available in all CLI versions on the runner;
+          # use ARM REST directly. The subscription_id in Terraform is "orders-subscription".
+          KEY=$(az rest --method post \
+            --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${{ env.LZ_PLATFORM_RG }}/providers/Microsoft.ApiManagement/service/${APIM}/subscriptions/orders-subscription/listSecrets?api-version=2022-08-01" \
+            --query "primaryKey" -o tsv)
           if [ -z "$KEY" ]; then
             echo "::error::orders subscription key not found — apply infra/lz-platform with orders_function_name set"
             exit 1
