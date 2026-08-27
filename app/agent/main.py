@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
-import yaml  # noqa: F401 — bisect 2e: import only, no file read
+from pathlib import Path
+
+import yaml
 
 from azure.ai.agentserver.responses import (
     CreateResponse,
@@ -23,7 +25,7 @@ _model = AzureAIOpenAIApiChatModel(
     credential=_credential,
     model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
 )
-_INSTRUCTIONS = "You are a helpful assistant."
+_INSTRUCTIONS = yaml.safe_load((Path(__file__).parent / "agent.yaml").read_text())["instructions"]
 _agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=_INSTRUCTIONS)
 
 server = ResponsesAgentServerHost(
