@@ -1,3 +1,19 @@
+# Each delegation carries a mandatory action that Azure fills in server-side. With no
+# actions declared here the provider reads that as "remove them", so every plan shows
+# these subnets changing and every apply pokes the delegation. Azure restores the
+# defaults, which is why it has never broken anything — but one of these subnets carries
+# the Foundry account's network injection, and a delegation that does break there means
+# rebuilding the account behind a 48-hour soft delete. Declaring the actions makes the
+# plan honest and leaves the delegation alone.
+#
+# A delegation missing from this map falls back to the old behaviour rather than failing.
+locals {
+  delegation_actions = {
+    "Microsoft.App/environments" = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    "Microsoft.Web/serverFarms"  = ["Microsoft.Network/virtualNetworks/subnets/action"]
+  }
+}
+
 resource "azurerm_subnet" "item" {
   for_each             = { for env in var.subnets : env.name => env }
   name                 = each.value.name
@@ -12,7 +28,8 @@ resource "azurerm_subnet" "item" {
       name = each.value.name
 
       service_delegation {
-        name = delegation.value
+        name    = delegation.value
+        actions = lookup(local.delegation_actions, delegation.value, null)
       }
     }
   }
