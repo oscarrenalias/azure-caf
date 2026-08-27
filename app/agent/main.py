@@ -37,6 +37,9 @@ async def handle_response(
     cancellation_signal,
 ) -> TextResponse:
     history = await context.get_history()
+    if not history:
+        user_text = await context.get_input_text()
+        history = [("user", user_text)]
     result = await _agent.ainvoke({"messages": history})
     # Read `.text`, not `.content`: over the Responses API the reply arrives as a
     # list of content blocks, and TextResponse only accepts str/callable/AsyncIterable.
