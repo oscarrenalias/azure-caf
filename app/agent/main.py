@@ -27,7 +27,7 @@ _model = AzureAIOpenAIApiChatModel(
 _INSTRUCTIONS = yaml.safe_load((Path(__file__).parent / "agent.yaml").read_text())[
     "instructions"
 ]
-_agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=_INSTRUCTIONS)
+_agent = create_react_agent(_model, tools=[search_knowledge_base])
 
 server = ResponsesAgentServerHost(
     options=ResponsesServerOptions(default_fetch_history_count=20)
