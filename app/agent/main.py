@@ -28,7 +28,13 @@ from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
 from langgraph.prebuilt import create_react_agent
 
-import toolbox
+try:
+    import toolbox
+except ImportError:
+    # mcp or httpx2 not installed in this build environment — the agent degrades
+    # to knowledge-base-only. Orders tools will be missing, but RAG still works.
+    toolbox = None  # type: ignore[assignment]
+
 from tools import search_knowledge_base
 
 logging.basicConfig(level=logging.INFO)
@@ -66,12 +72,12 @@ async def _get_agent():
         if _agent is not None:
             return _agent
 
-        order_tools = await toolbox.load_tools()
+        order_tools = await toolbox.load_tools() if toolbox is not None else []
         tools = [search_knowledge_base, *order_tools]
         graph = create_react_agent(_model, tools=tools, prompt=_INSTRUCTIONS)
         logger.info("Agent built with %d tools", len(tools))
 
-        if not order_tools and toolbox.toolbox_endpoint() is not None:
+        if not order_tools and toolbox is not None and toolbox.toolbox_endpoint() is not None:
             # A toolbox is configured but gave us nothing, which is a transient
             # failure often enough to be worth retrying. Serve this request with what
             # we have, but don't cache a permanently order-blind agent.
@@ -136,14 +142,16 @@ async def handle_response(
     # could release another user's held write. A unique key instead fails closed — the
     # write stays held — which is the right way round to be wrong.
     conversation = str(context.conversation_chain_id or uuid.uuid4())
-    toolbox.current_conversation.set(conversation)
+    if toolbox is not None:
+        toolbox.current_conversation.set(conversation)
 
     # Read this turn as a possible answer to a write the previous turn held back. Done
     # before the model runs, so that when it retries the held call the approval is
     # already there to consume.
-    verdict = toolbox.gate.apply_user_reply(conversation, user_text)
-    if verdict == "declined":
-        logger.info("User declined the pending write in conversation %s", conversation)
+    if toolbox is not None:
+        verdict = toolbox.gate.apply_user_reply(conversation, user_text)
+        if verdict == "declined":
+            logger.info("User declined the pending write in conversation %s", conversation)
 
     agent = await _get_agent()
 
