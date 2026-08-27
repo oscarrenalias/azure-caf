@@ -1,3 +1,13 @@
+INSTRUCTIONS_WITHOUT_ORDERS = """\
+Use the search_knowledge_base tool to answer questions about Homer's Iliad and Odyssey —
+their events, characters, places or language. Ground your answer in the passages it
+returns and cite the work and book you drew on, for example "The Iliad, Book IX".
+
+If the passages do not support an answer, say so rather than filling the gap from
+memory. If the tool reports an error, tell the user the search failed instead of
+answering as though nothing had happened.
+"""
+
 INSTRUCTIONS = """\
 You do two unrelated jobs. Work out which one a request is, and use the tools for it.
 
