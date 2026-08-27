@@ -25,7 +25,17 @@ _model = AzureAIOpenAIApiChatModel(
     credential=_credential,
     model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
 )
-_INSTRUCTIONS = yaml.safe_load((Path(__file__).parent / "agent.yaml").read_text())["instructions"]
+def _load_instructions() -> str:
+    for candidate in [
+        Path(__file__).parent / "agent.yaml",
+        Path.cwd() / "agent.yaml",
+    ]:
+        if candidate.exists():
+            return yaml.safe_load(candidate.read_text())["instructions"]
+    return "You are a helpful assistant."
+
+
+_INSTRUCTIONS = _load_instructions()
 _agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=_INSTRUCTIONS)
 
 server = ResponsesAgentServerHost(
