@@ -38,6 +38,14 @@ SCOPE = "https://ai.azure.com/.default"
 EXPECTED = {"getOrder", "listOrders", "createOrder", "updateOrder"}
 
 
+def _short_name(mcp_name: str) -> str:
+    """Extract bare tool name from `server.tool` or `server___tool`."""
+    for sep in ("___", "."):
+        if sep in mcp_name:
+            return mcp_name.split(sep)[-1]
+    return mcp_name
+
+
 async def probe(endpoint: str, call: str | None, customer: str | None) -> int:
     token = DefaultAzureCredential().get_token(SCOPE).token
     headers = {"Authorization": f"Bearer {token}"}
@@ -68,7 +76,7 @@ async def probe(endpoint: str, call: str | None, customer: str | None) -> int:
                         print(f"  _meta            : {json.dumps(meta)[:300]}")
                     print()
 
-                short_names = {t.name.split(".")[-1] for t in listed.tools}
+                short_names = {_short_name(t.name) for t in listed.tools}
                 missing = EXPECTED - short_names
                 if missing:
                     print(f"MISSING: {', '.join(sorted(missing))}")
@@ -78,7 +86,7 @@ async def probe(endpoint: str, call: str | None, customer: str | None) -> int:
 
                 if call:
                     name = next(
-                        (t.name for t in listed.tools if t.name.split(".")[-1] == call), None
+                        (t.name for t in listed.tools if _short_name(t.name) == call), None
                     )
                     if name is None:
                         print(f"\nNo tool named {call}.")

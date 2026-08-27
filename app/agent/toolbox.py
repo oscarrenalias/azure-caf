@@ -95,14 +95,22 @@ async def _session(endpoint: str) -> AsyncGenerator[ClientSession]:
 
 
 def _safe_name(mcp_name: str) -> str:
-    """`orders.createOrder` -> `orders_createOrder`.
+    """`orders.createOrder` or `orders___createOrder` -> `orders_createOrder`.
 
-    The Toolbox namespaces MCP tools as `{server_label}.{tool_name}`, and OpenAI-style
-    function names permit letters, digits, underscore and hyphen — not dots. Left
-    unconverted the model never gets to call the tool and the failure looks like the
-    model ignoring it.
+    The Toolbox namespaces MCP tools as `{server_label}.{tool_name}` (documented) or
+    `{server_label}___{tool_name}` (observed in beta). OpenAI-style function names permit
+    letters, digits, underscore and hyphen — not dots. Left unconverted the model never
+    gets to call the tool and the failure looks like the model ignoring it.
     """
-    return mcp_name.replace(".", "_")
+    return mcp_name.replace("___", "_").replace(".", "_")
+
+
+def _short_name(mcp_name: str) -> str:
+    """Bare tool name without the server-label prefix."""
+    for sep in ("___", "."):
+        if sep in mcp_name:
+            return mcp_name.split(sep)[-1]
+    return mcp_name
 
 
 async def _call(mcp_name: str, arguments: dict[str, Any]) -> str:
@@ -211,7 +219,7 @@ async def load_tools() -> list[StructuredTool]:
     tools = []
     for tool in listed.tools:
         platform = _platform_says_approval(tool)
-        gated = tool.name.split(".")[-1] in configured if configured else platform
+        gated = _short_name(tool.name) in configured if configured else platform
 
         if configured and platform != gated:
             # Not an error — the Toolbox's setting is per-server and this is per-tool —
