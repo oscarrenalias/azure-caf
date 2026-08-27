@@ -162,6 +162,7 @@ resource "azurerm_api_management_subscription" "orders" {
   api_management_name = azurerm_api_management.main.name
   resource_group_name = module.lz_data.rg.name
   product_id          = azurerm_api_management_product.orders[0].id
+  subscription_id     = "orders-subscription"
   display_name        = "Orders Default"
   state               = "active"
 }
