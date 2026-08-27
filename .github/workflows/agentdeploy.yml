@@ -203,6 +203,33 @@ jobs:
         env:
           FOUNDRY_PROJECT_ENDPOINT: https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}
 
+      - name: Verify agent responds
+        working-directory: app
+        run: |
+          echo "Waiting 90s for the container to become ready..."
+          sleep 90
+          TOKEN=$(az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv)
+          ENDPOINT="https://${{ env.FOUNDRY_HUB_NAME }}.services.ai.azure.com/api/projects/${{ env.FOUNDRY_PROJECT_NAME }}/agents/rag-agent/endpoint/protocols/openai/responses?api-version=v1"
+          for i in $(seq 1 6); do
+            echo "=== Attempt $i ==="
+            HTTP_CODE=$(curl -s -o /tmp/agent_response.json -w "%{http_code}" -X POST "$ENDPOINT" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]}')
+            echo "HTTP $HTTP_CODE"
+            cat /tmp/agent_response.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d,indent=2)[:500])" 2>/dev/null || cat /tmp/agent_response.json
+            if echo "$HTTP_CODE" | grep -qE '^2'; then
+              echo "Agent responded successfully."
+              exit 0
+            fi
+            if [ "$i" -lt 6 ]; then
+              echo "Waiting 30s before next attempt..."
+              sleep 30
+            fi
+          done
+          echo "::error::Agent did not respond after all attempts."
+          exit 1
+
       - name: Show agent status on failure
         if: failure()
         working-directory: app
