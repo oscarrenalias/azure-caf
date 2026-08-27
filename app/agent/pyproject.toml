@@ -16,6 +16,8 @@ dependencies = [
     "azure-search-documents>=11.6.0",
     "hypercorn>=0.18.0",
     "python-dotenv>=1.0.0",
+    "mcp>=2.0,<3",
+    "httpx2>=0.28",
 ]
 
 [tool.uv]

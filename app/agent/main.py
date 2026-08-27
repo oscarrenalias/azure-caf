@@ -15,6 +15,7 @@ from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
 from langgraph.prebuilt import create_react_agent
 
 from config import INSTRUCTIONS
+from toolbox import current_conversation, load_tools
 from tools import search_knowledge_base
 
 _credential = DefaultAzureCredential()
@@ -23,11 +24,19 @@ _model = AzureAIOpenAIApiChatModel(
     credential=_credential,
     model=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "apim-gateway/gpt-4o"),
 )
-_agent = create_react_agent(_model, tools=[search_knowledge_base], prompt=INSTRUCTIONS)
 
 server = ResponsesAgentServerHost(
     options=ResponsesServerOptions(default_fetch_history_count=20)
 )
+
+_agent = None
+
+
+@server.lifespan
+async def startup() -> None:
+    global _agent
+    tools = [search_knowledge_base] + await load_tools()
+    _agent = create_react_agent(_model, tools=tools, prompt=INSTRUCTIONS)
 
 
 @server.response_handler
@@ -36,6 +45,7 @@ async def handle_response(
     context: ResponseContext,
     cancellation_signal,
 ) -> TextResponse:
+    current_conversation.set(context.conversation_id)
     history = await context.get_history()
     if not history:
         user_text = await context.get_input_text()
