@@ -1,0 +1,218 @@
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Landing zone with the Foundry project'
+        required: true
+        default: lz01
+        type: choice
+        options:
+          - lz01
+      toolbox:
+        description: 'Toolbox name'
+        required: false
+        default: orders-toolbox
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+name: toolboxdeploy
+run-name: toolboxdeploy | ${{ github.event.inputs.environment }} | ${{ github.event.inputs.toolbox }} | ${{ github.sha }}
+
+# Self-hosted, like every other deploy here: the Foundry project has no public inbound
+# (network-injected, BYO VNet), so the connection and toolbox APIs are only reachable
+# from inside the hub VNet. The jump VM's system-assigned identity has Foundry Project
+# Manager on the account, which covers the data-plane calls this workflow makes.
+#
+# The workflow is idempotent:
+#   - Connection: checked via the azure-ai-projects SDK before creation; skipped if it
+#     already exists with the right name.
+#   - Toolbox: create_toolbox.py calls create_version() which adds a version each run.
+#     The first version becomes the default automatically; later ones do not, so the
+#     agent always uses the initial version unless promoted deliberately. Re-runs are safe
+#     but wasteful; run only when the APIM MCP server or connection changes.
+#
+# After the toolbox is created for the first time, run agentdeploy.yml — the agent
+# container loads tools at startup, and only a redeploy picks up a toolbox that did not
+# exist when the container last started.
+jobs:
+  create-toolbox:
+    runs-on: self-hosted
+    steps:
+      - name: Clean workspace
+        run: rm -rf ${{ github.workspace }}/app
+
+      - uses: actions/checkout@v7
+
+      - name: Environment variables
+        run: |
+          grep -v '^\s*#' config/global.env | grep -v '^\s*$' >>$GITHUB_ENV || true
+          echo -e "\n" >>$GITHUB_ENV
+
+      - name: Resolve names
+        run: |
+          NUMBER=$(grep number config/global.tfvars | cut -d= -f2 | tr -d ' "')
+          LZ=$(grep '^lz ' config/${{ github.event.inputs.environment }}.tfvars | cut -d= -f2 | tr -d ' "')
+          echo "RESOURCE_GROUP=rg${NUMBER}-${LZ}" >>$GITHUB_ENV
+          echo "LZ_PLATFORM_RG=rg${NUMBER}-lz-platform" >>$GITHUB_ENV
+
+      - name: Azure Login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Resolve Foundry project endpoint
+        run: |
+          FOUNDRY_HUB=$(az resource list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --resource-type "Microsoft.CognitiveServices/accounts" \
+            --query "[?starts_with(name, 'hub')].name | [0]" -o tsv)
+          if [ -z "$FOUNDRY_HUB" ]; then
+            echo "::error::no Foundry hub account found in ${{ env.RESOURCE_GROUP }} — apply infra/lz01 first"
+            exit 1
+          fi
+          FOUNDRY_PROJECT="proj${FOUNDRY_HUB#hub}"
+          ENDPOINT="https://${FOUNDRY_HUB}.services.ai.azure.com/api/projects/${FOUNDRY_PROJECT}"
+          echo "FOUNDRY_HUB_NAME=${FOUNDRY_HUB}" >>$GITHUB_ENV
+          echo "FOUNDRY_PROJECT_NAME=${FOUNDRY_PROJECT}" >>$GITHUB_ENV
+          echo "FOUNDRY_PROJECT_ENDPOINT=${ENDPOINT}" >>$GITHUB_ENV
+
+      - name: Resolve APIM orders values
+        run: |
+          APIM=$(az apim list -g ${{ env.LZ_PLATFORM_RG }} \
+            --query "[0].name" -o tsv)
+          if [ -z "$APIM" ]; then
+            echo "::error::no APIM instance in ${{ env.LZ_PLATFORM_RG }} — apply infra/lz-platform first"
+            exit 1
+          fi
+          echo "APIM_NAME=${APIM}" >>$GITHUB_ENV
+
+          MCP_URL="https://${APIM}.azure-api.net/orders-mcp/mcp"
+          echo "ORDERS_MCP_URL=${MCP_URL}" >>$GITHUB_ENV
+
+          KEY=$(az apim subscription list \
+            -g ${{ env.LZ_PLATFORM_RG }} -n "${APIM}" \
+            --query "[?displayName=='Orders Default'].primaryKey | [0]" -o tsv)
+          if [ -z "$KEY" ]; then
+            echo "::error::orders subscription key not found — apply infra/lz-platform with orders_function_name set"
+            exit 1
+          fi
+          echo "ORDERS_SUBSCRIPTION_KEY=${KEY}" >>$GITHUB_ENV
+
+      - name: Verify APIM MCP server is reachable
+        run: |
+          echo "=== tools/list on ${{ env.ORDERS_MCP_URL }} ==="
+          RESP=$(curl -fsS -X POST "${{ env.ORDERS_MCP_URL }}" \
+            -H "Ocp-Apim-Subscription-Key: ${{ env.ORDERS_SUBSCRIPTION_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json, text/event-stream" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+          echo "$RESP" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          tools = [t['name'] for t in d.get('result', {}).get('tools', [])]
+          print('tools:', tools)
+          if not tools:
+              print('::error::no tools returned — the MCP server may not be configured correctly')
+              sys.exit(1)
+          " || { echo "$RESP"; exit 1; }
+
+      - name: Install azd
+        run: |
+          if ! command -v azd &>/dev/null; then
+            curl -fsSL https://aka.ms/install-azd.sh | bash
+          fi
+
+      - name: Install azd extensions
+        # azure.ai.agents covers agent deployment commands (used by agentdeploy.yml) and
+        # may include azd ai connection. microsoft.foundry is the extension documented by
+        # app/toolbox/README.md for azd ai connection create specifically.
+        run: |
+          azd extension install azure.ai.agents --source azd 2>/dev/null || true
+          azd extension install microsoft.foundry 2>/dev/null || true
+
+      - name: azd auth login
+        run: |
+          azd auth login \
+            --client-id "${{ env.ARM_CLIENT_ID }}" \
+            --federated-credential-provider github \
+            --tenant-id "${{ env.ARM_TENANT_ID }}"
+
+      - name: Install uv
+        run: |
+          if ! command -v uv &>/dev/null; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            echo "$HOME/.local/bin" >>$GITHUB_PATH
+          fi
+
+      - name: Create APIM project connection (idempotent)
+        env:
+          FOUNDRY_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
+        run: |
+          # Check via the azure-ai-projects SDK (connections.list is read-only, no SDK
+          # create) whether the connection already exists, to keep this step idempotent.
+          # The check runs under DefaultAzureCredential, which on the self-hosted runner
+          # resolves to the VM's system-assigned managed identity via IMDS.
+          EXISTS=$(uv run --with 'azure-ai-projects>=2.4.0' --with azure-identity python3 - <<'PYEOF'
+          import os, sys
+          from azure.ai.projects import AIProjectClient
+          from azure.identity import DefaultAzureCredential
+          with AIProjectClient(endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
+                               credential=DefaultAzureCredential()) as c:
+              names = [x.name for x in c.connections.list()]
+              print("yes" if "apim-orders-mcp" in names else "no")
+          PYEOF
+          )
+
+          if [ "$EXISTS" = "yes" ]; then
+            echo "Connection apim-orders-mcp already exists, skipping creation."
+          else
+            echo "Creating connection apim-orders-mcp..."
+            azd ai project set "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
+            azd ai connection create apim-orders-mcp \
+              --kind remote-tool \
+              --target "${{ env.ORDERS_MCP_URL }}" \
+              --auth-type custom-keys \
+              --custom-key "Ocp-Apim-Subscription-Key=${{ env.ORDERS_SUBSCRIPTION_KEY }}"
+          fi
+
+      - name: Create toolbox version
+        id: toolbox
+        working-directory: app/toolbox
+        env:
+          FOUNDRY_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
+          ORDERS_CONNECTION_NAME: apim-orders-mcp
+          ORDERS_MCP_URL: ${{ env.ORDERS_MCP_URL }}
+          TOOLBOX_NAME: ${{ github.event.inputs.toolbox }}
+        run: |
+          OUTPUT=$(uv run --with 'azure-ai-projects>=2.4.0' --with azure-identity \
+            python create_toolbox.py)
+          echo "$OUTPUT"
+          VERSIONED=$(echo "$OUTPUT" | grep "Probe this version:" | awk '{print $NF}')
+          UNVERSIONED=$(echo "$OUTPUT" | grep "Agent endpoint:" | awk '{print $NF}')
+          echo "VERSIONED_ENDPOINT=${VERSIONED}" >>$GITHUB_ENV
+          echo "UNVERSIONED_ENDPOINT=${UNVERSIONED}" >>$GITHUB_ENV
+
+      - name: Probe toolbox
+        working-directory: app/toolbox
+        run: |
+          uv run --with 'mcp>=2.0,<3' --with httpx2 --with azure-identity \
+            python probe_toolbox.py --endpoint "${{ env.VERSIONED_ENDPOINT }}"
+
+      - name: Summary
+        run: |
+          echo "### Toolbox deployed" >>$GITHUB_STEP_SUMMARY
+          echo "| | |" >>$GITHUB_STEP_SUMMARY
+          echo "|---|---|" >>$GITHUB_STEP_SUMMARY
+          echo "| Toolbox | \`${{ github.event.inputs.toolbox }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Connection | \`apim-orders-mcp\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| APIM MCP server | \`${{ env.ORDERS_MCP_URL }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "| Source | \`${{ github.ref_name }}@${{ github.sha }}\` |" >>$GITHUB_STEP_SUMMARY
+          echo "" >>$GITHUB_STEP_SUMMARY
+          echo "**Next step:** run \`agentdeploy.yml\` to pick up the toolbox tools." >>$GITHUB_STEP_SUMMARY
+          echo "The agent container loads tools at startup, and only a redeploy picks up" >>$GITHUB_STEP_SUMMARY
+          echo "a toolbox that did not exist when the container last started." >>$GITHUB_STEP_SUMMARY
