@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import yaml  # noqa: F401 — bisect 2e: import only, no file read
 
 from azure.ai.agentserver.responses import (
     CreateResponse,
