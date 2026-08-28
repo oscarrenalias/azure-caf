@@ -93,14 +93,6 @@ async def handle_response(
             history = _strip_tool_messages(history)
             if not history:
                 history = [HumanMessage(content=user_text)]
-            else:
-                # get_history() may return messages up to the previous response
-                # only, without the current turn's user input. Ensure it is always
-                # the last message so the agent sees the full conversation.
-                last = history[-1]
-                last_content = (last.content if hasattr(last, "content") else "").strip()
-                if not (isinstance(last, HumanMessage) and last_content == user_text.strip()):
-                    history.append(HumanMessage(content=user_text))
     except Exception:
         logger.exception("Agent setup failed in conversation %s", context.conversation_id)
         return TextResponse(context, request, text="Something went wrong. Please try again.")

@@ -27,6 +27,7 @@ _AGENT_URL = (
     f"{FOUNDRY_PROJECT_ENDPOINT}/agents/{AGENT_NAME}"
     "/endpoint/protocols/openai/responses?api-version=v1"
 )
+_CONVERSATIONS_URL = f"{FOUNDRY_PROJECT_ENDPOINT}/openai/v1/conversations"
 
 logger.info("Agent URL: %s", _AGENT_URL)
 logger.info("AZURE_CLIENT_ID: %s", os.environ.get("AZURE_CLIENT_ID", "(not set)"))
@@ -86,22 +87,37 @@ def _render_cards(text: str) -> str:
 
 @cl.on_chat_start
 async def on_start():
-    cl.user_session.set("previous_response_id", None)
+    conversation_id: str | None = None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _CONVERSATIONS_URL,
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_token()}",
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+            conversation_id = resp.json().get("id")
+            logger.info("Created conversation %s", conversation_id)
+    except Exception:
+        logger.exception("Failed to create conversation; will send without context")
+    cl.user_session.set("conversation_id", conversation_id)
 
 
 @cl.on_message
 async def main(message: cl.Message):
-    previous_response_id = cl.user_session.get("previous_response_id")
+    conversation_id = cl.user_session.get("conversation_id")
 
     payload: dict = {"input": message.content, "stream": True}
-    if previous_response_id:
-        payload["previous_response_id"] = previous_response_id
+    if conversation_id:
+        payload["conversation"] = conversation_id
 
     msg = cl.Message(content="")
     await msg.send()
 
     accumulated = ""
-    response_id: str | None = None
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
@@ -132,8 +148,6 @@ async def main(message: cl.Message):
                         if delta:
                             accumulated += delta
                             await msg.stream_token(delta)
-                    elif event_type == "response.completed":
-                        response_id = event.get("response", {}).get("id")
 
     except httpx.HTTPStatusError as exc:
         logger.error("Agent HTTP error %s: %s", exc.response.status_code, exc.response.text)
@@ -141,9 +155,6 @@ async def main(message: cl.Message):
     except Exception:
         logger.exception("Unexpected error calling agent")
         await msg.stream_token("\n\nSomething went wrong. Please try again.")
-
-    if response_id:
-        cl.user_session.set("previous_response_id", response_id)
 
     rendered = _render_cards(accumulated)
     awaiting = "AWAITING_CONFIRMATION" in rendered
