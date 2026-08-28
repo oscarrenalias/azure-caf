@@ -12,9 +12,11 @@ from azure.ai.agentserver.responses import (
     ResponsesServerOptions,
     TextResponse,
 )
+from azure.ai.agentserver.responses.models._helpers import to_item
 from azure.identity import DefaultAzureCredential
+from langchain_azure_ai.agents.hosting._converters import build_messages_input
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
@@ -48,27 +50,6 @@ server = ResponsesAgentServerHost(
 )
 
 
-def _strip_tool_messages(messages: list) -> list:
-    """Remove tool-call/result pairs from history before passing to ainvoke.
-
-    Foundry may reassign tool_call_ids when storing conversation history,
-    breaking the OpenAI API's requirement that each ToolMessage's tool_call_id
-    matches the preceding assistant tool_calls. Dropping both sides is safe:
-    the final text response after each tool round is preserved and gives the
-    model enough context. Keeping the "thinking" text from a tool-call
-    AIMessage (the model's preamble before calling) causes the model to
-    mistake it for an open confirmation request on the next turn.
-    """
-    result = []
-    for msg in messages:
-        if isinstance(msg, ToolMessage):
-            continue
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            continue
-        result.append(msg)
-    return result
-
-
 @server.response_handler
 async def handle_response(
     request: CreateResponse,
@@ -86,13 +67,23 @@ async def handle_response(
         user_text = await context.get_input_text()
         gate.apply_user_reply(context.conversation_id, user_text)
 
-        history = await context.get_history()
-        if not history:
-            history = [HumanMessage(content=user_text)]
-        else:
-            history = _strip_tool_messages(history)
-            if not history:
-                history = [HumanMessage(content=user_text)]
+        # get_history() returns OutputItem TypedDicts from previous turns (not
+        # including the current turn's input). Convert each to an Item via
+        # to_item() (which re-types "output_message" → "message"), then combine
+        # with the current turn's input items so the agent sees the full context.
+        # build_messages_input converts everything to LangChain messages and
+        # filters out incomplete tool-call/result pairs caused by Foundry
+        # reassigning call_ids across turns.
+        current_items = list(await context.get_input_items())
+        history_output_items = await context.get_history()
+        history_items = [
+            it
+            for output_item in history_output_items
+            if (it := to_item(output_item)) is not None
+        ]
+        graph_input = build_messages_input(history_items + current_items)
+        if not graph_input.get("messages"):
+            graph_input = {"messages": [HumanMessage(content=user_text)]}
     except Exception:
         logger.exception("Agent setup failed in conversation %s", context.conversation_id)
         return TextResponse(context, request, text="Something went wrong. Please try again.")
@@ -110,7 +101,7 @@ async def handle_response(
     async def _generate():
         try:
             async for chunk, _ in _agent.astream(
-                {"messages": history}, stream_mode="messages"
+                graph_input, stream_mode="messages"
             ):
                 if isinstance(chunk, AIMessage) and not chunk.tool_calls and chunk.content:
                     text = _text_from_content(chunk.content)
