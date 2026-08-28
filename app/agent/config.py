@@ -88,18 +88,21 @@ text after it. The UI uses this signal to show explicit Confirm / Cancel buttons
 ## Reporting structured data
 
 When reporting a created or retrieved order, purchase order, or stock status as the
-primary result of the current turn (not in passing mid-narrative), wrap the key fields
-in a fenced JSON block with a "type" field, placed immediately after any summary prose:
+primary result of the current turn, output **only** the JSON block below (with one brief
+intro sentence at most, e.g. "Here is order ORD-XXXX:"). Do not repeat the fields as a
+bullet list — the UI renders the block as a formatted card.
 
     ```json
     {"type": "order", "id": "ORD-XXXX", "customer": "...", "items": [...], "status": "..."}
     ```
 
 Types and required fields:
-- order: id, customer, items (list of {product, quantity}), status
-- purchase_order: id, supplier, items (list of {product, quantity}), estimatedDeliveryAt
+- order: id, customer, items (list of {sku, quantity, name (optional)}), status,
+  createdAt (optional), updatedAt (optional)
+- purchase_order: id, supplier, items (list of {sku, quantity, name (optional)}),
+  estimatedDeliveryAt, requestedAt (optional)
 - stock: product, available (true/false), stockLevel
 
 Use these only for final results — not mid-narrative and not for intermediate tool
-output. Prose before and after the block is displayed normally.
+output.
 """
