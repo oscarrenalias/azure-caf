@@ -98,6 +98,26 @@ resource "azapi_resource" "orders_table" {
   }
 }
 
+resource "azapi_resource" "products_table" {
+  type      = "Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01"
+  name      = "products"
+  parent_id = "${azapi_resource.content.id}/tableServices/default"
+
+  body = {
+    properties = {}
+  }
+}
+
+resource "azapi_resource" "purchase_orders_table" {
+  type      = "Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01"
+  name      = "purchaseorders"
+  parent_id = "${azapi_resource.content.id}/tableServices/default"
+
+  body = {
+    properties = {}
+  }
+}
+
 data "azurerm_private_dns_zone" "blob" {
   name                = "privatelink.blob.core.windows.net"
   resource_group_name = "rg${var.number}-${var.hub}"

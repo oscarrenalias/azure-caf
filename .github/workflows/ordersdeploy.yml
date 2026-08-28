@@ -98,6 +98,38 @@ jobs:
             --name ${{ env.FUNCTION_APP }} \
             --src /tmp/orders.zip
 
+      - name: Seed product catalogue
+        run: |
+          ENDPOINT=$(az functionapp config appsettings list \
+            --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.FUNCTION_APP }} \
+            --query "[?name=='ORDERS_TABLE_ENDPOINT'].value | [0]" -o tsv)
+
+          ORDERS_TABLE_ENDPOINT="$ENDPOINT" \
+          uv run --with 'azure-data-tables>=12.0' --with azure-identity python3 - <<'PYEOF'
+          import os
+          from azure.data.tables import TableClient
+          from azure.identity import DefaultAzureCredential
+
+          endpoint = os.environ["ORDERS_TABLE_ENDPOINT"]
+          client = TableClient(endpoint=endpoint, table_name="products",
+                               credential=DefaultAzureCredential())
+
+          products = [
+              {"PartitionKey": "catalog", "RowKey": "WIDGET-001",
+               "name": "Standard Widget", "stockLevel": 100},
+              {"PartitionKey": "catalog", "RowKey": "GADGET-002",
+               "name": "Premium Gadget", "stockLevel": 0},
+              {"PartitionKey": "catalog", "RowKey": "COMPONENT-003",
+               "name": "Core Component", "stockLevel": 15},
+              {"PartitionKey": "catalog", "RowKey": "PROD-X",
+               "name": "Test Product X", "stockLevel": 0},
+          ]
+          for p in products:
+              client.upsert_entity(p)
+              avail = "in stock" if p["stockLevel"] > 0 else "OUT OF STOCK"
+              print(f"  {p['RowKey']}: {p['name']} — {avail} ({p['stockLevel']} units)")
+          PYEOF
+
       - name: Smoke test
         run: |
           KEY=$(az functionapp keys list \

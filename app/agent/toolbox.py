@@ -192,7 +192,7 @@ def _gated_tool_names() -> set[str]:
 
     Set TOOLBOX_APPROVAL_TOOLS to an empty string to defer to the Toolbox instead.
     """
-    raw = os.environ.get("TOOLBOX_APPROVAL_TOOLS", "createOrder,updateOrder")
+    raw = os.environ.get("TOOLBOX_APPROVAL_TOOLS", "createOrder,updateOrder,createPurchaseOrder")
     return {name.strip() for name in raw.split(",") if name.strip()}
 
 

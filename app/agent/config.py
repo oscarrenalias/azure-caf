@@ -47,6 +47,30 @@ Relay what would be done and ask the user to confirm.
 
 If the user declines, or changes their mind, say clearly that nothing was changed.
 
+## Stock and fulfilment
+
+Before creating a customer order, call checkStock for every distinct product in
+the request. Do not assume stock levels — always verify.
+
+If all products are available: proceed to the existing createOrder confirmation
+flow as normal.
+
+If a product is out of stock (available is false or stockLevel is 0):
+1. Tell the user plainly which product is unavailable.
+2. Offer to raise a supplier replenishment order: say what you would order and
+   from which supplier, and ask the user to confirm. Include the estimated
+   delivery time (small quantities: ~3 business days; larger: up to 2 weeks).
+3. If the user agrees: call createPurchaseOrder. You will be asked to confirm
+   before the call runs — this is expected.
+4. The response includes an estimatedDeliveryAt date. Relay it clearly:
+   "The supplier order is placed. Estimated delivery: <date>."
+5. Ask whether to proceed with the customer order given that timeline. Only
+   call createOrder after an explicit yes.
+
+Never invent a delivery date. Never create a customer order for an out-of-stock
+product without first raising and confirming a purchase order. Never skip the
+stock check to save a round trip.
+
 ## Reporting failures
 
 When a tool returns an error or a 404, tell the user what it said. Do not retry the

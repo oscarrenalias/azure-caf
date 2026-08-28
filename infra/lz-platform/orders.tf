@@ -246,6 +246,43 @@ locals {
         first: an id that does not exist returns 404 and nothing is changed.
       EOT
     }
+    checkStock = {
+      operation   = "check-stock"
+      description = <<-EOT
+        Check whether a product is in stock and how many units are available.
+        Always call this for each item before creating a customer order — never
+        assume availability. If available is false or stockLevel is 0 the product
+        needs replenishing: use createPurchaseOrder to raise a supplier order,
+        relay the estimated delivery date to the user, and only then create the
+        customer order. The sku must be a real product code from the catalogue.
+      EOT
+    }
+    listProducts = {
+      operation   = "list-products"
+      description = <<-EOT
+        List every product in the catalogue with its current stock level.
+        Use when the user wants to know what is available, or when you need to
+        help them identify the right sku before checking stock or placing an order.
+      EOT
+    }
+    createPurchaseOrder = {
+      operation   = "create-purchase-order"
+      description = <<-EOT
+        Raise a replenishment order to restock a product from the supplier.
+        WRITES TO THE SYSTEM OF RECORD. Call only after checkStock confirms the
+        product is out of stock AND the user has explicitly agreed to the
+        replenishment. Returns an estimatedDeliveryAt date — tell the user this
+        date and get a second confirmation before creating the customer order.
+      EOT
+    }
+    getPurchaseOrder = {
+      operation   = "get-purchase-order"
+      description = <<-EOT
+        Look up a supplier purchase order by its id to check status or retrieve
+        the estimated delivery date. The purchaseOrderId must come from a previous
+        createPurchaseOrder call — purchase order ids cannot be guessed or derived.
+      EOT
+    }
   } : {}
 }
 

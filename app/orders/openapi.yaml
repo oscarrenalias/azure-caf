@@ -125,6 +125,108 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /products:
+    get:
+      operationId: list-products
+      summary: List all products in the catalogue
+      description: >-
+        Return every product with its current stock level. Use this when the user
+        wants to know what products are available, or when you need to look up the
+        right sku before checking stock or placing an order.
+      responses:
+        "200":
+          description: All products with stock levels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductList"
+
+  /products/{sku}/stock:
+    get:
+      operationId: check-stock
+      summary: Check whether a product is in stock
+      description: >-
+        Return the current stock level for one product. Call this before creating
+        a customer order when the user names a product. If available is false or
+        stockLevel is 0, the product must be replenished — use createPurchaseOrder
+        to raise a supplier order first. If the sku does not exist the response is
+        404; list products to find the right code.
+      parameters:
+        - name: sku
+          in: path
+          required: true
+          description: The product code, for example "WIDGET-001".
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stock information for the product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /purchase-orders:
+    post:
+      operationId: create-purchase-order
+      summary: Raise a supplier replenishment order
+      description: >-
+        Place a purchase order to restock a product from the supplier. WRITES TO
+        THE SYSTEM OF RECORD. Call only after checkStock confirms the product is
+        out of stock and the user has explicitly agreed to the replenishment. The
+        response includes an estimatedDeliveryAt date — relay this to the user and
+        confirm before creating the customer order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePurchaseOrderRequest"
+      responses:
+        "201":
+          description: The created purchase order, including its estimated delivery date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /purchase-orders/{purchaseOrderId}:
+    get:
+      operationId: get-purchase-order
+      summary: Get a supplier purchase order by id
+      description: >-
+        Return a single purchase order. Use the id returned by createPurchaseOrder.
+        If no such order exists the response is 404. The purchaseOrderId is not
+        guessable — do not invent one.
+      parameters:
+        - name: purchaseOrderId
+          in: path
+          required: true
+          description: The purchase order id, for example "PO-3F9A2B71".
+          schema:
+            type: string
+        - name: sku
+          in: query
+          required: false
+          description: The product sku. Supplying it makes the lookup a direct read.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The purchase order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrder"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   responses:
     BadRequest:
@@ -234,3 +336,64 @@ components:
           description: What went wrong, in words safe to relay to the user.
         orderId:
           type: string
+
+    Product:
+      type: object
+      properties:
+        sku:
+          type: string
+          description: The product code, for example "WIDGET-001".
+        name:
+          type: string
+          description: Human-readable product name.
+        stockLevel:
+          type: integer
+          description: Units currently in stock.
+        available:
+          type: boolean
+          description: True when stockLevel is greater than zero.
+
+    ProductList:
+      type: object
+      properties:
+        count:
+          type: integer
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+
+    PurchaseOrder:
+      type: object
+      properties:
+        purchaseOrderId:
+          type: string
+          description: Issued by this API. For example "PO-3F9A2B71".
+        sku:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [confirmed, delivered]
+        requestedAt:
+          type: string
+          format: date-time
+        estimatedDeliveryAt:
+          type: string
+          format: date-time
+          description: The expected delivery date from the supplier.
+
+    CreatePurchaseOrderRequest:
+      type: object
+      required: [sku, quantity]
+      properties:
+        sku:
+          type: string
+          description: The product code to replenish. Must exist in the catalogue.
+        quantity:
+          type: integer
+          minimum: 1
+          description: How many units to order from the supplier.

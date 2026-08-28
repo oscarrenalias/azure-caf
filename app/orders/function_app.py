@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -42,6 +42,64 @@ def _table() -> TableClient:
         table_name=os.environ.get("ORDERS_TABLE_NAME", "orders"),
         credential=DefaultAzureCredential(),
     )
+
+
+@lru_cache(maxsize=1)
+def _products_table() -> TableClient:
+    return TableClient(
+        endpoint=os.environ["ORDERS_TABLE_ENDPOINT"],
+        table_name=os.environ.get("PRODUCTS_TABLE_NAME", "products"),
+        credential=DefaultAzureCredential(),
+    )
+
+
+@lru_cache(maxsize=1)
+def _purchase_orders_table() -> TableClient:
+    return TableClient(
+        endpoint=os.environ["ORDERS_TABLE_ENDPOINT"],
+        table_name=os.environ.get("PURCHASE_ORDERS_TABLE_NAME", "purchaseorders"),
+        credential=DefaultAzureCredential(),
+    )
+
+
+def _to_product(entity: dict) -> dict:
+    stock = int(entity.get("stockLevel", 0))
+    return {
+        "sku": entity["RowKey"],
+        "name": entity.get("name", entity["RowKey"]),
+        "stockLevel": stock,
+        "available": stock > 0,
+    }
+
+
+def _to_purchase_order(entity: dict) -> dict:
+    return {
+        "purchaseOrderId": entity["RowKey"],
+        "sku": entity["PartitionKey"],
+        "name": entity.get("name", entity["PartitionKey"]),
+        "quantity": int(entity.get("quantity", 0)),
+        "status": entity.get("status", "confirmed"),
+        "requestedAt": entity.get("requestedAt"),
+        "estimatedDeliveryAt": entity.get("estimatedDeliveryAt"),
+    }
+
+
+def _lead_time_days(quantity: int) -> int:
+    if quantity <= 10:
+        return 3
+    if quantity <= 50:
+        return 7
+    return 14
+
+
+def _add_business_days(start: datetime, days: int) -> datetime:
+    dt = start
+    added = 0
+    while added < days:
+        dt += timedelta(days=1)
+        if dt.weekday() < 5:
+            added += 1
+    return dt
 
 
 def _now() -> str:
@@ -268,3 +326,108 @@ def update_order(req: func.HttpRequest) -> func.HttpResponse:
 
     logger.info("Updated order %s", order_id)
     return _json(_to_order(entity))
+
+
+@app.route(route="products", methods=["GET"])
+def list_products(req: func.HttpRequest) -> func.HttpResponse:
+    entities = _products_table().query_entities("PartitionKey eq 'catalog'")
+    products = sorted((_to_product(e) for e in entities), key=lambda p: p["sku"])
+    return _json({"count": len(products), "products": products})
+
+
+@app.route(route="products/{sku}/stock", methods=["GET"])
+def check_stock(req: func.HttpRequest) -> func.HttpResponse:
+    sku = req.route_params["sku"]
+    try:
+        entity = _products_table().get_entity(partition_key="catalog", row_key=sku)
+    except ResourceNotFoundError:
+        return _error(
+            404,
+            "product_not_found",
+            f"No product with sku '{sku}' exists in the catalogue. "
+            "Use listProducts to see what is available.",
+            sku=sku,
+        )
+    return _json(_to_product(entity))
+
+
+@app.route(route="purchase-orders", methods=["POST"])
+def create_purchase_order(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error(400, "invalid_body", "Request body must be a JSON object.")
+
+    if not isinstance(body, dict):
+        return _error(400, "invalid_body", "Request body must be a JSON object.")
+
+    sku = body.get("sku")
+    if not isinstance(sku, str) or not sku.strip():
+        return _error(400, "missing_field", "'sku' is required and must be a non-empty string.")
+    sku = sku.strip()
+
+    quantity = body.get("quantity")
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+        return _error(400, "invalid_field", "'quantity' must be an integer of 1 or more.")
+
+    try:
+        product_entity = _products_table().get_entity(partition_key="catalog", row_key=sku)
+    except ResourceNotFoundError:
+        return _error(
+            404,
+            "product_not_found",
+            f"No product with sku '{sku}' exists. Use listProducts to see what is available.",
+            sku=sku,
+        )
+
+    now = datetime.now(timezone.utc)
+    delivery_dt = _add_business_days(now, _lead_time_days(quantity))
+    po_id = f"PO-{uuid.uuid4().hex[:8].upper()}"
+
+    entity = {
+        "PartitionKey": sku,
+        "RowKey": po_id,
+        "name": product_entity.get("name", sku),
+        "quantity": quantity,
+        "status": "confirmed",
+        "requestedAt": now.isoformat(timespec="seconds"),
+        "estimatedDeliveryAt": delivery_dt.isoformat(timespec="seconds"),
+    }
+
+    try:
+        _purchase_orders_table().create_entity(entity)
+    except ResourceExistsError:
+        return _error(409, "purchase_order_exists", f"A purchase order with id '{po_id}' already exists.")
+
+    logger.info("Created purchase order %s for sku %s qty %d", po_id, sku, quantity)
+    return _json(_to_purchase_order(entity), status=201)
+
+
+@app.route(route="purchase-orders/{purchaseOrderId}", methods=["GET"])
+def get_purchase_order(req: func.HttpRequest) -> func.HttpResponse:
+    po_id = req.route_params["purchaseOrderId"]
+    sku = req.params.get("sku")
+
+    if sku:
+        try:
+            entity = _purchase_orders_table().get_entity(partition_key=sku, row_key=po_id)
+        except ResourceNotFoundError:
+            entity = None
+    else:
+        matches = list(
+            _purchase_orders_table().query_entities(
+                "RowKey eq @poId", parameters={"poId": po_id}, results_per_page=2
+            )
+        )
+        entity = matches[0] if matches else None
+
+    if entity is None:
+        return _error(
+            404,
+            "purchase_order_not_found",
+            f"No purchase order with id '{po_id}' exists. "
+            "Purchase order ids are not guessable — use the id returned by createPurchaseOrder.",
+            purchaseOrderId=po_id,
+        )
+
+    return _json(_to_purchase_order(entity))
