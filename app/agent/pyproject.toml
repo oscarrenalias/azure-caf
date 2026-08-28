@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "mcp>=2.0,<3",
     "httpx2>=0.28",
+    "pydantic<2.14.0a0",
 ]
 
 # uv settings live in uv.toml (prerelease = "allow", system-certs = true).
