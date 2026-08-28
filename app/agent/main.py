@@ -97,13 +97,25 @@ async def handle_response(
         logger.exception("Agent setup failed in conversation %s", context.conversation_id)
         return TextResponse(context, request, text="Something went wrong. Please try again.")
 
+    def _text_from_content(content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in content
+            )
+        return str(content)
+
     async def _generate():
         try:
             async for chunk, _ in _agent.astream(
                 {"messages": history}, stream_mode="messages"
             ):
                 if isinstance(chunk, AIMessage) and not chunk.tool_calls and chunk.content:
-                    yield chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                    text = _text_from_content(chunk.content)
+                    if text:
+                        yield text
         except GraphRecursionError:
             logger.exception("Recursion limit hit in conversation %s", context.conversation_id)
             yield "I couldn't complete that in one step. Could you rephrase or try again?"
