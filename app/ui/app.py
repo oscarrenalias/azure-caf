@@ -53,46 +53,52 @@ def _render_cards(text: str) -> str:
 
         t = data.get("type")
         if t == "order":
-            rows = "\n".join(
-                f"| {i.get('sku', i.get('product', ''))} | {i.get('name', i.get('sku', i.get('product', '')))} | {i.get('quantity', '')} |"
-                for i in data.get("items", [])
-            )
             created = _date_only(data.get("createdAt", ""))
             updated = _date_only(data.get("updatedAt", ""))
-            dates = ""
-            if created or updated:
-                parts = []
-                if created:
-                    parts.append(f"Created: {created}")
-                if updated:
-                    parts.append(f"Updated: {updated}")
-                dates = " · ".join(parts) + "\n\n"
-            return (
-                f"**Order {data.get('id', '')}** · {data.get('status', '')}\n\n"
-                f"Customer: {data.get('customer', '')}\n"
-                f"{dates}"
-                f"| SKU | Product | Qty |\n|-----|---------|-----|\n{rows}"
-            )
-        if t == "purchase_order":
+            date_parts = []
+            if created:
+                date_parts.append(f"Created: {created}")
+            if updated:
+                date_parts.append(f"Updated: {updated}")
+            date_line = (">\n> " + " · ".join(date_parts)) if date_parts else ""
             rows = "\n".join(
-                f"| {i.get('sku', i.get('product', ''))} | {i.get('name', i.get('sku', i.get('product', '')))} | {i.get('quantity', '')} |"
+                f"> | {i.get('sku', i.get('product', ''))} | {i.get('name', i.get('sku', i.get('product', '')))} | {i.get('quantity', '')} |"
                 for i in data.get("items", [])
             )
-            requested = _date_only(data.get("requestedAt", ""))
-            requested_line = f"Requested: {requested}\n" if requested else ""
             return (
-                f"**Purchase Order**: {data.get('id', '')}\n"
-                f"**Supplier**: {data.get('supplier', '')}\n"
-                f"**Estimated Delivery**: {data.get('estimatedDeliveryAt', '')}\n"
-                f"{requested_line}\n"
-                f"| SKU | Product | Qty |\n|-----|---------|-----|\n{rows}"
+                f"> **Order {data.get('id', '')}** · *{data.get('status', '')}*\n"
+                f"> Customer: {data.get('customer', '')}{date_line}\n"
+                f">\n"
+                f"> | SKU | Product | Qty |\n"
+                f"> |-----|---------|-----|\n"
+                f"{rows}"
+            )
+        if t == "purchase_order":
+            requested = _date_only(data.get("requestedAt", ""))
+            delivery = data.get("estimatedDeliveryAt", "")
+            date_parts = []
+            if requested:
+                date_parts.append(f"Requested: {requested}")
+            if delivery:
+                date_parts.append(f"Est. delivery: {_date_only(delivery) or delivery}")
+            date_line = (">\n> " + " · ".join(date_parts)) if date_parts else ""
+            rows = "\n".join(
+                f"> | {i.get('sku', i.get('product', ''))} | {i.get('name', i.get('sku', i.get('product', '')))} | {i.get('quantity', '')} |"
+                for i in data.get("items", [])
+            )
+            return (
+                f"> **Purchase Order {data.get('id', '')}**\n"
+                f"> Supplier: {data.get('supplier', '')}{date_line}\n"
+                f">\n"
+                f"> | SKU | Product | Qty |\n"
+                f"> |-----|---------|-----|\n"
+                f"{rows}"
             )
         if t == "stock":
             available = "Yes" if data.get("available") else "No"
             return (
-                f"**Product**: {data.get('product', '')}\n"
-                f"**Available**: {available}\n"
-                f"**Stock Level**: {data.get('stockLevel', 0)}"
+                f"> **{data.get('product', '')}**\n"
+                f"> Available: {available} · Stock level: {data.get('stockLevel', 0)}"
             )
         return m.group(0)
 
