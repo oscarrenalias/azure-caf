@@ -14,7 +14,7 @@ from azure.ai.agentserver.responses import (
 )
 from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
@@ -88,11 +88,19 @@ async def handle_response(
 
         history = await context.get_history()
         if not history:
-            history = [("user", user_text)]
+            history = [HumanMessage(content=user_text)]
         else:
             history = _strip_tool_messages(history)
             if not history:
-                history = [("user", user_text)]
+                history = [HumanMessage(content=user_text)]
+            else:
+                # get_history() may return messages up to the previous response
+                # only, without the current turn's user input. Ensure it is always
+                # the last message so the agent sees the full conversation.
+                last = history[-1]
+                last_content = (last.content if hasattr(last, "content") else "").strip()
+                if not (isinstance(last, HumanMessage) and last_content == user_text.strip()):
+                    history.append(HumanMessage(content=user_text))
     except Exception:
         logger.exception("Agent setup failed in conversation %s", context.conversation_id)
         return TextResponse(context, request, text="Something went wrong. Please try again.")
