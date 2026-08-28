@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import traceback
 
 from azure.ai.agentserver.responses import (
     CreateResponse,
@@ -14,6 +15,7 @@ from azure.ai.agentserver.responses import (
 )
 from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
@@ -47,28 +49,54 @@ server = ResponsesAgentServerHost(
 )
 
 
+def _strip_tool_messages(messages: list) -> list:
+    """Remove tool-call/result pairs from history before passing to ainvoke.
+
+    The Foundry platform may reassign tool_call_ids when storing conversation
+    history, which breaks the OpenAI API's requirement that tool_call_id in
+    each ToolMessage matches an id in the preceding assistant tool_calls.  The
+    model has enough context from the text messages (user prompts + assistant
+    confirmations) to continue the conversation correctly without them.
+    """
+    result = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            continue
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            # Keep text content if any; drop the tool_calls themselves.
+            text = msg.content if isinstance(msg.content, str) else ""
+            if text:
+                result.append(AIMessage(content=text))
+            continue
+        result.append(msg)
+    return result
+
+
 @server.response_handler
 async def handle_response(
     request: CreateResponse,
     context: ResponseContext,
     cancellation_signal,
 ) -> TextResponse:
-    current_conversation.set(context.conversation_id)
-
-    # Read the user's input first — needed for two reasons:
-    # 1. If history is empty (first turn) it becomes the seed message.
-    # 2. It is checked against the approval gate BEFORE ainvoke so that a pending
-    #    write can be released. Without this, gate.take() always returns False,
-    #    gate.hold() fires again on every call, and the model loops until
-    #    GraphRecursionError → HTTP 500.
-    user_text = await context.get_input_text()
-    gate.apply_user_reply(context.conversation_id, user_text)
-
-    history = await context.get_history()
-    if not history:
-        history = [("user", user_text)]
-
     try:
+        current_conversation.set(context.conversation_id)
+
+        # Read the user's input before fetching history so the approval gate can
+        # release a pending write when the user confirms.  Without this call,
+        # gate.take() always returns False, gate.hold() fires every time and
+        # instructs the model to retry, the model does, and the loop hits
+        # LangGraph's recursion limit → GraphRecursionError → HTTP 500.
+        user_text = await context.get_input_text()
+        gate.apply_user_reply(context.conversation_id, user_text)
+
+        history = await context.get_history()
+        if not history:
+            history = [("user", user_text)]
+        else:
+            history = _strip_tool_messages(history)
+            if not history:
+                history = [("user", user_text)]
+
         result = await _agent.ainvoke({"messages": history})
         # Read `.text`, not `.content`: over the Responses API the reply arrives as a
         # list of content blocks, and TextResponse only accepts str/callable/AsyncIterable.
@@ -76,14 +104,18 @@ async def handle_response(
         final_text = getattr(last, "text", None) or (
             last.content if isinstance(last.content, str) else str(last.content)
         )
+
     except GraphRecursionError:
         logger.exception("Recursion limit hit in conversation %s", context.conversation_id)
         final_text = (
             "I couldn't complete that in one step. Could you rephrase or try again?"
         )
-    except Exception:
+    except Exception as exc:
+        # Surface the full traceback as the response text so it's visible in the UI
+        # during debugging.  Remove this broad handler once the root cause is confirmed.
+        tb = traceback.format_exc()
         logger.exception("Agent invocation failed in conversation %s", context.conversation_id)
-        raise
+        final_text = f"[DEBUG] {type(exc).__name__}: {exc}\n\n{tb}"
 
     return TextResponse(context, request, text=final_text)
 
