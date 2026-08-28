@@ -175,24 +175,20 @@ jobs:
       - name: Refresh APIM project connection
         env:
           FOUNDRY_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
+          # AZURE_AI_PROJECT_ENDPOINT is read directly by the azd AI extensions,
+          # bypassing the need for `azd ai project set` and an initialised azd
+          # environment. This makes the step self-contained regardless of runner state.
+          AZURE_AI_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
         run: |
-          # Ensure an azd environment exists so `azd ai project set` has somewhere to
-          # write the endpoint. `azd env new` is idempotent — it exits 1 if the env
-          # already exists, which we suppress.
-          azd env new toolbox-env 2>/dev/null || true
-          azd env select toolbox-env 2>/dev/null || true
-          azd ai project set "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
-
           # Always recreate the connection so the APIM subscription key stays current.
-          # Try deletion via the Foundry data plane first; ignore 404 (not yet created).
-          # The management-plane token (ARM scope) is what the data plane API accepts here.
-          TOKEN=$(az account get-access-token --query accessToken -o tsv)
+          # Delete first via the Foundry data plane; a 404 (not yet created) is fine.
+          TOKEN=$(az account get-access-token \
+            --resource "https://cognitiveservices.azure.com/" \
+            --query accessToken -o tsv)
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
             "${FOUNDRY_PROJECT_ENDPOINT}/connections/apim-orders-mcp?api-version=2025-05-15-preview" \
             -H "Authorization: Bearer ${TOKEN}")
           echo "Delete connection: HTTP ${STATUS}"
-          # 200/204 = deleted; 404 = did not exist; 401/other = REST path wrong,
-          # fall through to create which may overwrite silently.
 
           azd ai connection create apim-orders-mcp \
             --kind remote-tool \
