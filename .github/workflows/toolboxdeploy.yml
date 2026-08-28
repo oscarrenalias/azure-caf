@@ -172,36 +172,29 @@ jobs:
             echo "$HOME/.local/bin" >>$GITHUB_PATH
           fi
 
-      - name: Create APIM project connection (idempotent)
+      - name: Refresh APIM project connection
         env:
           FOUNDRY_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
         run: |
-          # Check via the azure-ai-projects SDK (connections.list is read-only, no SDK
-          # create) whether the connection already exists, to keep this step idempotent.
-          # The check runs under DefaultAzureCredential, which on the self-hosted runner
-          # resolves to the VM's system-assigned managed identity via IMDS.
-          EXISTS=$(uv run --with 'azure-ai-projects>=2.4.0' --with azure-identity python3 - <<'PYEOF'
-          import os, sys
-          from azure.ai.projects import AIProjectClient
-          from azure.identity import DefaultAzureCredential
-          with AIProjectClient(endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
-                               credential=DefaultAzureCredential()) as c:
-              names = [x.name for x in c.connections.list()]
-              print("yes" if "apim-orders-mcp" in names else "no")
-          PYEOF
-          )
+          # Always delete and recreate the connection so the APIM subscription key stays
+          # current. The azure-ai-projects SDK exposes no update or delete operation for
+          # connections, so deletion goes through the Foundry data plane REST API.
+          # A 404 (connection does not exist yet) is treated as success.
+          TOKEN=$(az account get-access-token \
+            --resource "https://cognitiveservices.azure.com/" \
+            --query accessToken -o tsv)
 
-          if [ "$EXISTS" = "yes" ]; then
-            echo "Connection apim-orders-mcp already exists, skipping creation."
-          else
-            echo "Creating connection apim-orders-mcp..."
-            azd ai project set "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
-            azd ai connection create apim-orders-mcp \
-              --kind remote-tool \
-              --target "${{ env.ORDERS_MCP_URL }}" \
-              --auth-type custom-keys \
-              --custom-key "Ocp-Apim-Subscription-Key=${{ env.ORDERS_SUBSCRIPTION_KEY }}"
-          fi
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+            "${FOUNDRY_PROJECT_ENDPOINT}/connections/apim-orders-mcp?api-version=2025-05-15-preview" \
+            -H "Authorization: Bearer ${TOKEN}")
+          echo "Delete connection: HTTP ${STATUS}"
+
+          azd ai project set "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
+          azd ai connection create apim-orders-mcp \
+            --kind remote-tool \
+            --target "${{ env.ORDERS_MCP_URL }}" \
+            --auth-type custom-keys \
+            --custom-key "Ocp-Apim-Subscription-Key=${{ env.ORDERS_SUBSCRIPTION_KEY }}"
 
       - name: Create toolbox version
         id: toolbox
