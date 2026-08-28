@@ -93,25 +93,25 @@ async def handle_response(
             history = _strip_tool_messages(history)
             if not history:
                 history = [("user", user_text)]
-
-        result = await _agent.ainvoke({"messages": history})
-        # Read `.text`, not `.content`: over the Responses API the reply arrives as a
-        # list of content blocks, and TextResponse only accepts str/callable/AsyncIterable.
-        last = result["messages"][-1]
-        final_text = getattr(last, "text", None) or (
-            last.content if isinstance(last.content, str) else str(last.content)
-        )
-
-    except GraphRecursionError:
-        logger.exception("Recursion limit hit in conversation %s", context.conversation_id)
-        final_text = (
-            "I couldn't complete that in one step. Could you rephrase or try again?"
-        )
     except Exception:
-        logger.exception("Agent invocation failed in conversation %s", context.conversation_id)
-        final_text = "Something went wrong. Please try again."
+        logger.exception("Agent setup failed in conversation %s", context.conversation_id)
+        return TextResponse(context, request, text="Something went wrong. Please try again.")
 
-    return TextResponse(context, request, text=final_text)
+    async def _generate():
+        try:
+            async for chunk, _ in _agent.astream(
+                {"messages": history}, stream_mode="messages"
+            ):
+                if isinstance(chunk, AIMessage) and not chunk.tool_calls and chunk.content:
+                    yield chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+        except GraphRecursionError:
+            logger.exception("Recursion limit hit in conversation %s", context.conversation_id)
+            yield "I couldn't complete that in one step. Could you rephrase or try again?"
+        except Exception:
+            logger.exception("Agent streaming failed in conversation %s", context.conversation_id)
+            yield "Something went wrong. Please try again."
+
+    return TextResponse(context, request, text=_generate())
 
 
 if __name__ == "__main__":
