@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import traceback
 
 from azure.ai.agentserver.responses import (
     CreateResponse,
@@ -52,21 +51,19 @@ server = ResponsesAgentServerHost(
 def _strip_tool_messages(messages: list) -> list:
     """Remove tool-call/result pairs from history before passing to ainvoke.
 
-    The Foundry platform may reassign tool_call_ids when storing conversation
-    history, which breaks the OpenAI API's requirement that tool_call_id in
-    each ToolMessage matches an id in the preceding assistant tool_calls.  The
-    model has enough context from the text messages (user prompts + assistant
-    confirmations) to continue the conversation correctly without them.
+    Foundry may reassign tool_call_ids when storing conversation history,
+    breaking the OpenAI API's requirement that each ToolMessage's tool_call_id
+    matches the preceding assistant tool_calls. Dropping both sides is safe:
+    the final text response after each tool round is preserved and gives the
+    model enough context. Keeping the "thinking" text from a tool-call
+    AIMessage (the model's preamble before calling) causes the model to
+    mistake it for an open confirmation request on the next turn.
     """
     result = []
     for msg in messages:
         if isinstance(msg, ToolMessage):
             continue
         if isinstance(msg, AIMessage) and msg.tool_calls:
-            # Keep text content if any; drop the tool_calls themselves.
-            text = msg.content if isinstance(msg.content, str) else ""
-            if text:
-                result.append(AIMessage(content=text))
             continue
         result.append(msg)
     return result
@@ -110,12 +107,9 @@ async def handle_response(
         final_text = (
             "I couldn't complete that in one step. Could you rephrase or try again?"
         )
-    except Exception as exc:
-        # Surface the full traceback as the response text so it's visible in the UI
-        # during debugging.  Remove this broad handler once the root cause is confirmed.
-        tb = traceback.format_exc()
+    except Exception:
         logger.exception("Agent invocation failed in conversation %s", context.conversation_id)
-        final_text = f"[DEBUG] {type(exc).__name__}: {exc}\n\n{tb}"
+        final_text = "Something went wrong. Please try again."
 
     return TextResponse(context, request, text=final_text)
 
