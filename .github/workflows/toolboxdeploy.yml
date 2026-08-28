@@ -90,17 +90,38 @@ jobs:
             exit 1
           fi
           echo "APIM_NAME=${APIM}" >>$GITHUB_ENV
+          echo "ORDERS_MCP_URL=https://${APIM}.azure-api.net/orders-mcp/mcp" >>$GITHUB_ENV
 
-          MCP_URL="https://${APIM}.azure-api.net/orders-mcp/mcp"
-          echo "ORDERS_MCP_URL=${MCP_URL}" >>$GITHUB_ENV
+          # List all subscriptions (diagnostic + SID discovery). The Terraform resource sets
+          # subscription_id = "orders-subscription" but we filter by displayName to be safe.
+          ALL_SUBS=$(az rest --method get \
+            --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${{ env.LZ_PLATFORM_RG }}/providers/Microsoft.ApiManagement/service/${APIM}/subscriptions?api-version=2022-08-01" \
+            -o json)
+          echo "=== APIM subscriptions ==="
+          echo "$ALL_SUBS" | python3 -c "
+          import sys, json
+          for s in json.load(sys.stdin).get('value', []):
+              print(s['name'], '->', s.get('properties', {}).get('displayName', ''))
+          "
 
-          # `az apim subscription list` is not available in all CLI versions on the runner;
-          # use ARM REST directly. The subscription_id in Terraform is "orders-subscription".
+          SID=$(echo "$ALL_SUBS" | python3 -c "
+          import sys, json
+          for s in json.load(sys.stdin).get('value', []):
+              if s.get('properties', {}).get('displayName') == 'Orders Default':
+                  print(s['name'])
+                  break
+          ")
+          if [ -z "$SID" ]; then
+            echo "::error::orders subscription (displayName='Orders Default') not found in APIM — apply infra/lz-platform with orders_function_name set"
+            exit 1
+          fi
+          echo "Found orders subscription SID: ${SID}"
+
           KEY=$(az rest --method post \
-            --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${{ env.LZ_PLATFORM_RG }}/providers/Microsoft.ApiManagement/service/${APIM}/subscriptions/orders-subscription/listSecrets?api-version=2022-08-01" \
+            --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${{ env.LZ_PLATFORM_RG }}/providers/Microsoft.ApiManagement/service/${APIM}/subscriptions/${SID}/listSecrets?api-version=2022-08-01" \
             --query "primaryKey" -o tsv)
           if [ -z "$KEY" ]; then
-            echo "::error::orders subscription key not found — apply infra/lz-platform with orders_function_name set"
+            echo "::error::failed to retrieve primary key for subscription ${SID}"
             exit 1
           fi
           echo "ORDERS_SUBSCRIPTION_KEY=${KEY}" >>$GITHUB_ENV
