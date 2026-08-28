@@ -173,17 +173,22 @@ jobs:
           fi
 
       - name: Refresh APIM project connection
+        working-directory: app
         env:
           FOUNDRY_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
-          # AZURE_AI_PROJECT_ENDPOINT is read directly by the azd AI extensions,
-          # bypassing the need for `azd ai project set` and an initialised azd
-          # environment. This makes the step self-contained regardless of runner state.
-          AZURE_AI_PROJECT_ENDPOINT: ${{ env.FOUNDRY_PROJECT_ENDPOINT }}
         run: |
+          # Mirror what agentdeploy does: select (or create) the lz01 azd environment
+          # and store the project endpoint in it. azd ai connection create reads
+          # FOUNDRY_PROJECT_ENDPOINT from the active environment, not from the process env.
+          azd env new lz01 --no-prompt 2>/dev/null || azd env select lz01
+          azd env set FOUNDRY_PROJECT_ENDPOINT "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
+
           # Always recreate the connection so the APIM subscription key stays current.
-          # Delete first via the Foundry data plane; a 404 (not yet created) is fine.
+          # Delete first via the Foundry data plane (scope: https://ai.azure.com/.default,
+          # which is what the Foundry data plane uses — not cognitiveservices.azure.com).
+          # A 404 (not yet created) is treated as success.
           TOKEN=$(az account get-access-token \
-            --resource "https://cognitiveservices.azure.com/" \
+            --scope https://ai.azure.com/.default \
             --query accessToken -o tsv)
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
             "${FOUNDRY_PROJECT_ENDPOINT}/connections/apim-orders-mcp?api-version=2025-05-15-preview" \

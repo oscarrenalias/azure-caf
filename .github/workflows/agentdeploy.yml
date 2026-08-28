@@ -130,7 +130,7 @@ jobs:
             azd env set TOOLBOX_ENDPOINT ""
             echo "::warning::no toolbox given — the agent will deploy without order tools"
           fi
-          azd env set TOOLBOX_APPROVAL_TOOLS "createOrder,updateOrder"
+          azd env set TOOLBOX_APPROVAL_TOOLS "createOrder,updateOrder,createPurchaseOrder"
 
       - name: Install yq
         run: |
