@@ -183,23 +183,15 @@ jobs:
           azd env new lz01 --no-prompt 2>/dev/null || azd env select lz01
           azd env set FOUNDRY_PROJECT_ENDPOINT "${{ env.FOUNDRY_PROJECT_ENDPOINT }}"
 
-          # Always recreate the connection so the APIM subscription key stays current.
-          # Delete first via the Foundry data plane (scope: https://ai.azure.com/.default,
-          # which is what the Foundry data plane uses — not cognitiveservices.azure.com).
-          # A 404 (not yet created) is treated as success.
-          TOKEN=$(az account get-access-token \
-            --scope https://ai.azure.com/.default \
-            --query accessToken -o tsv)
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-            "${FOUNDRY_PROJECT_ENDPOINT}/connections/apim-orders-mcp?api-version=2025-05-15-preview" \
-            -H "Authorization: Bearer ${TOKEN}")
-          echo "Delete connection: HTTP ${STATUS}"
-
+          # --force replaces the connection if it already exists, ensuring the APIM
+          # subscription key is always current after a terraform apply that touches
+          # the lz-platform stack.
           azd ai connection create apim-orders-mcp \
             --kind remote-tool \
             --target "${{ env.ORDERS_MCP_URL }}" \
             --auth-type custom-keys \
-            --custom-key "Ocp-Apim-Subscription-Key=${{ env.ORDERS_SUBSCRIPTION_KEY }}"
+            --custom-key "Ocp-Apim-Subscription-Key=${{ env.ORDERS_SUBSCRIPTION_KEY }}" \
+            --force
 
       - name: Create toolbox version
         id: toolbox
