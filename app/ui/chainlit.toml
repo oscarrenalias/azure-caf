@@ -4,3 +4,4 @@ name = "AI Assistant"
 [UI]
 name = "AI Assistant"
 description = "Homer's epics and order management, powered by Azure AI Foundry."
+unsafe_allow_html = true
