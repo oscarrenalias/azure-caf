@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from azure.ai.agentserver.responses import (
@@ -13,11 +14,14 @@ from azure.ai.agentserver.responses import (
 )
 from azure.identity import DefaultAzureCredential
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
+from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
 from config import INSTRUCTIONS, INSTRUCTIONS_WITHOUT_ORDERS
-from toolbox import current_conversation, load_tools
+from toolbox import current_conversation, gate, load_tools
 from tools import search_knowledge_base
+
+logger = logging.getLogger("rag-agent")
 
 _credential = DefaultAzureCredential()
 _model = AzureAIOpenAIApiChatModel(
@@ -50,17 +54,37 @@ async def handle_response(
     cancellation_signal,
 ) -> TextResponse:
     current_conversation.set(context.conversation_id)
+
+    # Read the user's input first — needed for two reasons:
+    # 1. If history is empty (first turn) it becomes the seed message.
+    # 2. It is checked against the approval gate BEFORE ainvoke so that a pending
+    #    write can be released. Without this, gate.take() always returns False,
+    #    gate.hold() fires again on every call, and the model loops until
+    #    GraphRecursionError → HTTP 500.
+    user_text = await context.get_input_text()
+    gate.apply_user_reply(context.conversation_id, user_text)
+
     history = await context.get_history()
     if not history:
-        user_text = await context.get_input_text()
         history = [("user", user_text)]
-    result = await _agent.ainvoke({"messages": history})
-    # Read `.text`, not `.content`: over the Responses API the reply arrives as a
-    # list of content blocks, and TextResponse only accepts str/callable/AsyncIterable.
-    last = result["messages"][-1]
-    final_text = getattr(last, "text", None) or (
-        last.content if isinstance(last.content, str) else str(last.content)
-    )
+
+    try:
+        result = await _agent.ainvoke({"messages": history})
+        # Read `.text`, not `.content`: over the Responses API the reply arrives as a
+        # list of content blocks, and TextResponse only accepts str/callable/AsyncIterable.
+        last = result["messages"][-1]
+        final_text = getattr(last, "text", None) or (
+            last.content if isinstance(last.content, str) else str(last.content)
+        )
+    except GraphRecursionError:
+        logger.exception("Recursion limit hit in conversation %s", context.conversation_id)
+        final_text = (
+            "I couldn't complete that in one step. Could you rephrase or try again?"
+        )
+    except Exception:
+        logger.exception("Agent invocation failed in conversation %s", context.conversation_id)
+        raise
+
     return TextResponse(context, request, text=final_text)
 
 
