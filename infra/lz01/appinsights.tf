@@ -38,6 +38,10 @@ resource "azapi_resource" "foundry_appinsights_connection" {
   name      = "app-insights"
   parent_id = azapi_resource.foundry_project.id
 
+  # azapi's bundled schema predates ProjectManagedIdentity authType — disable
+  # validation so it passes the value through rather than rejecting it.
+  schema_validation_enabled = false
+
   body = {
     properties = {
       category     = "AppInsights"
